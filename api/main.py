@@ -26,11 +26,11 @@ from api.models import (
     CreateNovelRequest, ApproveChapter1Request, ContinueNovelRequest,
     ApproveCharactersRequest, NovelListItem, NovelStatusResponse, ChapterResponse,
     SettingsRequest, SettingsResponse, AgentConfig, UpdateChapterRequest, StyleConfig,
-    RollbackRequest,
+    RollbackRequest, ImportNovelRequest,
 )
 from api.service import (
     broadcaster, checkpoint_gate, start_novel_pipeline,
-    start_regen_chapter, start_continue_pipeline,
+    start_regen_chapter, start_continue_pipeline, start_import_pipeline,
 )
 from config import GEMINI_API_KEY, CORS_ORIGIN
 from core.ai_adapter import init_gemini
@@ -201,6 +201,40 @@ async def create_novel(req: CreateNovelRequest):
     style_dict = req.style_config.model_dump() if req.style_config else None
     start_novel_pipeline(
         novel_id, req.prompt,
+        req.num_chapters, req.words_per_chapter,
+        req.genre, loop, style_dict,
+    )
+    return {"id": novel_id}
+
+
+# ── POST /novels/import ─────────────────────────────────────────────────────
+
+@app.post("/novels/import", status_code=201)
+async def import_novel(req: ImportNovelRequest):
+    if not GEMINI_API_KEY:
+        raise HTTPException(400, "GEMINI_API_KEY not set. Set env var and restart.")
+    init_gemini(GEMINI_API_KEY)
+
+    if req.mode == "content" and not req.source_content.strip():
+        raise HTTPException(400, "source_content is required for mode=content")
+    if req.mode == "description" and not req.description.strip():
+        raise HTTPException(400, "description is required for mode=description")
+
+    novel_id = str(uuid.uuid4())
+    style_json = req.style_config.model_dump_json() if req.style_config else None
+    db.create_novel(novel_id, req.source_content or req.description, style_json)
+
+    # Mark as continuation in DB
+    import sqlite3 as _sqlite3
+    from api.database import _conn as _db_conn
+    with _db_conn() as conn:
+        conn.execute("UPDATE novels SET is_continuation=1 WHERE id=?", (novel_id,))
+
+    loop = asyncio.get_running_loop()
+    style_dict = req.style_config.model_dump() if req.style_config else None
+    start_import_pipeline(
+        novel_id, req.mode,
+        req.source_content, req.description,
         req.num_chapters, req.words_per_chapter,
         req.genre, loop, style_dict,
     )
@@ -512,6 +546,36 @@ async def character_timeline(novel_id: str):
         result.append({"name": name, "role": role, "chapters": appears_in})
 
     return result
+
+
+# ── GET /novels/{id}/search ────────────────────────────────────────────────
+
+@app.get("/novels/{novel_id}/search")
+async def search_novel(novel_id: str, q: str = ""):
+    if not db.get_novel(novel_id):
+        raise HTTPException(404, "Novel not found")
+    if not q.strip():
+        return []
+
+    chapters = db.get_chapters(novel_id)
+    results = []
+    q_lower = q.lower()
+    for ch in chapters:
+        content = ch["content"]
+        idx = content.lower().find(q_lower)
+        if idx == -1:
+            continue
+        # Extract snippet: 60 chars before + match + 60 chars after
+        start = max(0, idx - 60)
+        end = min(len(content), idx + len(q) + 60)
+        snippet = ("…" if start > 0 else "") + content[start:end] + ("…" if end < len(content) else "")
+        results.append({
+            "chapter_number": ch["number"],
+            "chapter_title": ch["title"],
+            "snippet": snippet,
+        })
+
+    return results
 
 
 # ── WS /novels/{id}/ws ────────────────────────────────────────────────────

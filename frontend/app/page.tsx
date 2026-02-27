@@ -17,6 +17,7 @@ export default function LandingPage() {
   const [tone, setTone] = useState<Tone>("neutral");
   const [dialogueRatio, setDialogueRatio] = useState<DialogueRatio>("medium");
   const [customNote, setCustomNote] = useState("");
+  const [qualityMode, setQualityMode] = useState(false);
   const [showStyle, setShowStyle] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +37,7 @@ export default function LandingPage() {
           num_chapters: chapters,
           words_per_chapter: words,
           genre,
-          style_config: { tone, dialogue_ratio: dialogueRatio, custom_note: customNote },
+          style_config: { tone, dialogue_ratio: dialogueRatio, custom_note: customNote, quality_mode: qualityMode },
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -52,7 +53,13 @@ export default function LandingPage() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-6 py-16">
       {/* ── Nav ── */}
-      <div className="absolute top-6 right-6">
+      <div className="absolute top-6 right-6 flex items-center gap-4">
+        <a href="/import" className="text-sm font-semibold transition-colors"
+          style={{ color: "var(--subtle)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--amber)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--subtle)")}>
+          Tiếp nối truyện
+        </a>
         <a href="/novels" className="text-sm font-semibold uppercase tracking-widest transition-colors"
           style={{ color: "var(--muted)" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--amber)")}
@@ -280,6 +287,35 @@ export default function LandingPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Fast / Quality toggle */}
+        <div className="mb-6">
+          <span className="text-xs uppercase tracking-widest font-semibold mb-2 block"
+            style={{ color: "var(--muted)" }}>
+            Chế độ tạo
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { value: false, label: "⚡ Nhanh", desc: "Pipeline tiêu chuẩn" },
+              { value: true,  label: "✦ Chất lượng", desc: "+30-40% thời gian, prose tốt hơn" },
+            ] as const).map(({ value, label, desc }) => (
+              <button
+                key={String(value)}
+                type="button"
+                onClick={() => setQualityMode(value)}
+                className="py-2.5 px-3 rounded-sm text-sm font-semibold transition-all text-left"
+                style={{
+                  background: qualityMode === value ? "var(--amber)" : "var(--surface)",
+                  color: qualityMode === value ? "var(--ink)" : "var(--subtle)",
+                  border: `1px solid ${qualityMode === value ? "var(--amber)" : "var(--border)"}`,
+                }}
+              >
+                <div>{label}</div>
+                <div className="text-xs font-normal mt-0.5 opacity-70">{desc}</div>
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (

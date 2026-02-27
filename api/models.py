@@ -25,6 +25,7 @@ class StyleConfig(BaseModel):
     tone: str = "neutral"           # "light" | "neutral" | "tense"
     dialogue_ratio: str = "medium"  # "low" | "medium" | "high"
     custom_note: str = ""
+    quality_mode: bool = False      # True = run ContentRefiner after DraftMaster
 
 
 class CreateNovelRequest(BaseModel):
@@ -63,6 +64,16 @@ class UpdateChapterRequest(BaseModel):
 
 class RollbackRequest(BaseModel):
     keep_chapters: int  # keep chapters 1..keep_chapters, delete the rest
+
+
+class ImportNovelRequest(BaseModel):
+    mode: str                           # "content" | "description"
+    source_content: str = ""            # Mode A: pasted novel text
+    description: str = ""              # Mode B: text description of dropped novel
+    num_chapters: int = 3
+    words_per_chapter: int = 4500
+    genre: str = "isekai"              # Mode B only; Mode A auto-detects
+    style_config: Optional[StyleConfig] = None
 
 
 class AgentConfig(BaseModel):

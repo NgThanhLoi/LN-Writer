@@ -66,6 +66,13 @@ def init_db():
             if "duplicate column name" not in str(e):
                 raise
 
+        # Migration: add is_continuation column if missing
+        try:
+            conn.execute("ALTER TABLE novels ADD COLUMN is_continuation INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
+
         # Backfill word_count for existing chapters (approximation via SQL — one-time)
         conn.execute("""
             UPDATE chapters

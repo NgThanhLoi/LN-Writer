@@ -62,6 +62,10 @@ AGENT_MODEL_CONFIG: dict = {
         "provider": os.environ.get("SUMMARIZER_PROVIDER", "gemini"),
         "model":    os.environ.get("SUMMARIZER_MODEL", GEMINI_FLASH_MODEL),
     },
+    "content_refiner": {
+        "provider": os.environ.get("CONTENT_REFINER_PROVIDER", "gemini"),
+        "model":    os.environ.get("CONTENT_REFINER_MODEL", GEMINI_FLASH_MODEL),
+    },
 }
 
 # ── settings.json override ──────────────────────────────────────────────────

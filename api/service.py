@@ -18,6 +18,8 @@ from core.agents.plot_navigator import PlotNavigatorAgent
 from core.agents.character_soul import CharacterSoulAgent
 from core.agents.draft_master import DraftMasterAgent
 from core.agents.final_auditor import FinalAuditorAgent
+from core.agents.content_refiner import ContentRefinerAgent
+from core.agents.blueprint_extractor import BlueprintExtractorAgent
 from core.models import Chapter, CharacterProfile, CharacterRelationship, NovelProject, NovelStatus, StoryBlueprint
 from core.prompts.writer_prompts import CHAPTER_SUMMARY_PROMPT
 from config import GEMINI_API_KEY
@@ -114,6 +116,8 @@ class AsyncNovelService:
         self.character_soul = CharacterSoulAgent()
         self.draft_master = DraftMasterAgent()
         self.final_auditor = FinalAuditorAgent()
+        self.content_refiner = ContentRefinerAgent()
+        self.blueprint_extractor = BlueprintExtractorAgent()
 
     def _emit(self, novel_id: str, event_type: str, data: dict = None):
         broadcaster.publish(novel_id, {"type": event_type, **(data or {})})
@@ -262,6 +266,10 @@ class AsyncNovelService:
                 "target": blueprint.words_per_chapter,
             })
 
+        quality_mode = bool(
+            blueprint.style_config and blueprint.style_config.get("quality_mode")
+        )
+
         for attempt in range(1, MAX_REGEN_PER_CHAPTER + 1):
             self._emit(novel_id, "log", {
                 "msg": f"Writing chapter {chapter.number} (attempt {attempt})..."
@@ -271,6 +279,14 @@ class AsyncNovelService:
                 chapter_summaries=summaries,
                 on_progress=on_progress,
             )
+
+            # Quality mode: refine prose before auditing
+            if quality_mode:
+                self._emit(novel_id, "log", {
+                    "msg": f"Refining prose for chapter {chapter.number}..."
+                })
+                chapter.content = self.content_refiner.run(chapter, blueprint)
+
             audit_result = self.final_auditor.run(chapter, characters)
             chapter.audit_passed = audit_result.get("passed", False)
             chapter.audit_notes = audit_result.get("summary", "")
@@ -491,6 +507,179 @@ class AsyncNovelService:
             self._emit(novel_id, "error", {"msg": f"Regen failed: {e}"})
             raise
 
+    def _import_sync(self, novel_id: str, mode: str, source_content: str,
+                     description: str, num_chapters: int, words_per_chapter: int,
+                     genre: str, loop: asyncio.AbstractEventLoop,
+                     style_config: dict | None = None):
+        """Import pipeline — Mode A (extract blueprint) or Mode B (description)."""
+        summaries: dict[int, str] = {}
+
+        try:
+            sc_dict = style_config or {}
+
+            if mode == "content":
+                # Mode A: extract blueprint from pasted content
+                self._emit(novel_id, "log", {"msg": "═══ PHÂN TÍCH NỘI DUNG GỐC ═══"})
+                self._update_status(novel_id, "navigating_plot")
+
+                blueprint, summaries, existing_count = self.blueprint_extractor.run(
+                    source_content, num_chapters, words_per_chapter, sc_dict
+                )
+                blueprint.style_config = sc_dict
+                for ch in blueprint.chapters:
+                    ch.id = f"{novel_id[:8]}_ch_{ch.number:03d}"
+
+                # Save summaries from source content to DB for context continuity
+                for ch_num, summary in summaries.items():
+                    if summary:
+                        db.save_summary(novel_id, ch_num, summary)
+
+                db.update_novel_blueprint(novel_id, _blueprint_to_json(blueprint))
+
+                # Checkpoint: user reviews extracted blueprint
+                self._update_status(novel_id, "awaiting_plot_approval")
+                self._emit(novel_id, "checkpoint_plot", {
+                    "blueprint": _blueprint_summary(blueprint),
+                    "is_continuation": True,
+                    "existing_chapters": existing_count,
+                })
+
+                plot_key = f"{novel_id}:plot"
+                _BridgeEvent(loop, plot_key).wait()
+                if checkpoint_gate.get_decision(plot_key) == "reject":
+                    self._update_status(novel_id, "failed")
+                    self._emit(novel_id, "done", {"status": "failed"})
+                    return
+
+                # Now run PlotNavigator continuation to get proper chapter outlines
+                self._emit(novel_id, "log", {"msg": "═══ LẬP KẾ HOẠCH CHƯƠNG ═══"})
+                existing_summary = "\n".join(
+                    f"[Ch.{n}]: {s}" for n, s in sorted(summaries.items())
+                ) or blueprint.premise
+                last_cliffhanger = blueprint.chapters[0].opening_hook if blueprint.chapters else ""
+                start_chapter = existing_count + 1
+
+                new_chapter_objects = self.plot_navigator.run_continuation(
+                    blueprint=blueprint,
+                    existing_summary=existing_summary,
+                    last_cliffhanger=last_cliffhanger,
+                    num_new_chapters=num_chapters,
+                    start_chapter=start_chapter,
+                    genre=blueprint.genre,
+                )
+                for ch in new_chapter_objects:
+                    ch.id = f"{novel_id[:8]}_ch_{ch.number:03d}"
+                blueprint.chapters = new_chapter_objects
+                db.update_novel_blueprint(novel_id, _blueprint_to_json(blueprint))
+
+            else:
+                # Mode B: description-based continuation (same as create but framed as continuation)
+                self._emit(novel_id, "log", {"msg": "═══ XÂY DỰNG CỐT TRUYỆN ═══"})
+                self._update_status(novel_id, "navigating_plot")
+
+                continuation_prompt = (
+                    f"[ĐÂY LÀ PHẦN TIẾP THEO CỦA MỘT TRUYỆN]\n\n"
+                    f"Mô tả truyện gốc:\n{description}\n\n"
+                    f"Hãy viết tiếp câu chuyện từ điểm dừng trên."
+                )
+                blueprint = self.plot_navigator.run(
+                    continuation_prompt, num_chapters=num_chapters, genre=genre
+                )
+                blueprint.words_per_chapter = words_per_chapter
+                blueprint.style_config = sc_dict
+                for ch in blueprint.chapters:
+                    ch.id = f"{novel_id[:8]}_ch_{ch.number:03d}"
+
+                self._update_status(novel_id, "building_characters")
+                characters = self.character_soul.run(blueprint)
+                blueprint.characters = characters
+                db.update_novel_blueprint(novel_id, _blueprint_to_json(blueprint))
+
+                self._update_status(novel_id, "awaiting_plot_approval")
+                self._emit(novel_id, "checkpoint_plot", {
+                    "blueprint": _blueprint_summary(blueprint),
+                    "is_continuation": True,
+                })
+                plot_key = f"{novel_id}:plot"
+                _BridgeEvent(loop, plot_key).wait()
+                if checkpoint_gate.get_decision(plot_key) == "reject":
+                    self._update_status(novel_id, "failed")
+                    self._emit(novel_id, "done", {"status": "failed"})
+                    return
+
+            # Phase 2: Generate chapters (shared for both modes)
+            self._emit(novel_id, "log", {"msg": "═══ VIẾT CHƯƠNG ═══"})
+            self._update_status(novel_id, "drafting")
+            completed_chapters = []
+
+            for chapter in blueprint.chapters:
+                chapter = self._write_and_audit(
+                    novel_id, chapter, blueprint, blueprint.characters,
+                    completed_chapters, summaries,
+                )
+                summary = self._generate_summary(novel_id, chapter)
+                if summary:
+                    summaries[chapter.number] = summary
+                db.save_chapter_with_summary(
+                    novel_id, chapter.id, chapter.number, chapter.title,
+                    chapter.content, chapter.audit_passed, chapter.audit_notes,
+                    summary,
+                )
+                self._emit(novel_id, "chapter_done", {
+                    "number": chapter.number,
+                    "title": chapter.title,
+                    "word_count": len(chapter.content.split()),
+                    "audit_passed": chapter.audit_passed,
+                    "audit_notes": chapter.audit_notes,
+                })
+
+                if chapter.number == blueprint.chapters[0].number:
+                    # Checkpoint after first generated chapter
+                    self._update_status(novel_id, "awaiting_chapter1_approval")
+                    self._emit(novel_id, "checkpoint_chapter1", {
+                        "preview": " ".join(chapter.content.split()[:300]),
+                        "word_count": len(chapter.content.split()),
+                        "audit_passed": chapter.audit_passed,
+                        "audit_notes": chapter.audit_notes,
+                    })
+                    ch1_key = f"{novel_id}:chapter1"
+                    _BridgeEvent(loop, ch1_key).wait()
+                    decision = checkpoint_gate.get_decision(ch1_key)
+                    if decision == "regen":
+                        self._emit(novel_id, "log", {"msg": "Regenerating first chapter..."})
+                        chapter = self._write_and_audit(
+                            novel_id, chapter, blueprint, blueprint.characters, [], summaries,
+                        )
+                        summary = self._generate_summary(novel_id, chapter)
+                        if summary:
+                            summaries[chapter.number] = summary
+                        db.save_chapter_with_summary(
+                            novel_id, chapter.id, chapter.number, chapter.title,
+                            chapter.content, chapter.audit_passed, chapter.audit_notes,
+                            summary,
+                        )
+                    self._update_status(novel_id, "drafting")
+
+                completed_chapters.append(chapter)
+                db.update_novel_status(novel_id, "drafting", chapter.number)
+
+            output_path = _save_markdown(novel_id, blueprint, completed_chapters)
+            db.update_novel_output_path(novel_id, output_path)
+            db.update_novel_status(novel_id, "completed", len(completed_chapters))
+            self._emit(novel_id, "done", {
+                "status": "completed",
+                "output_path": output_path,
+                "total_words": sum(len(ch.content.split()) for ch in completed_chapters),
+            })
+
+        except Exception as e:
+            logger.error(f"Import pipeline failed for novel {novel_id}: {e}", exc_info=True)
+            db.update_novel_status(novel_id, "failed")
+            self._emit(novel_id, "error", {"msg": str(e)})
+            raise
+        finally:
+            checkpoint_gate.cleanup(novel_id)
+
     def _generate_summary(self, novel_id: str, chapter) -> str:
         self._emit(novel_id, "log", {"msg": f"Summarizing chapter {chapter.number}..."})
         try:
@@ -645,3 +834,15 @@ def start_continue_pipeline(novel_id: str, num_chapters: int, genre: str,
                              loop: asyncio.AbstractEventLoop):
     """Submit continuation pipeline to thread pool — non-blocking from async context."""
     _executor.submit(_service._continue_sync, novel_id, num_chapters, genre, loop)
+
+
+def start_import_pipeline(novel_id: str, mode: str, source_content: str,
+                           description: str, num_chapters: int, words_per_chapter: int,
+                           genre: str, loop: asyncio.AbstractEventLoop,
+                           style_config: dict | None = None):
+    """Submit import pipeline to thread pool — non-blocking from async context."""
+    _executor.submit(
+        _service._import_sync,
+        novel_id, mode, source_content, description,
+        num_chapters, words_per_chapter, genre, loop, style_config,
+    )

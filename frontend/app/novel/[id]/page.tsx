@@ -41,6 +41,61 @@ export default function ReaderPage() {
   const [timeline, setTimeline] = useState<{ name: string; role: string; chapters: number[] }[] | null>(null);
   const [showTimeline, setShowTimeline] = useState(false);
 
+  // ── Full-text search ────────────────────────────────────────────────────
+  type SearchResult = { chapter_number: number; chapter_title: string; snippet: string };
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleSearch(q: string) {
+    setSearchQuery(q);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!q.trim()) { setSearchResults(null); return; }
+    setSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/novels/${id}/search?q=${encodeURIComponent(q)}`);
+        if (res.ok) setSearchResults(await res.json());
+      } catch { setSearchResults([]); }
+      finally { setSearching(false); }
+    }, 400);
+  }
+
+  // ── Font / spacing controls ─────────────────────────────────────────────
+  type FontSize = "S" | "M" | "L" | "XL";
+  type LineHeight = "compact" | "normal" | "relaxed";
+  type FontFamily = "serif" | "sans";
+
+  const FONT_SIZES: Record<FontSize, string> = { S: "0.9rem", M: "1.05rem", L: "1.2rem", XL: "1.4rem" };
+  const LINE_HEIGHTS: Record<LineHeight, string> = { compact: "1.6", normal: "1.8", relaxed: "2.1" };
+
+  const [fontSize, setFontSize] = useState<FontSize>("M");
+  const [lineHeight, setLineHeight] = useState<LineHeight>("normal");
+  const [fontFamily, setFontFamily] = useState<FontFamily>("serif");
+  const [showFontPanel, setShowFontPanel] = useState(false);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ln-reader-prefs") || "{}");
+      if (saved.fontSize) setFontSize(saved.fontSize);
+      if (saved.lineHeight) setLineHeight(saved.lineHeight);
+      if (saved.fontFamily) setFontFamily(saved.fontFamily);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Save to localStorage on change
+  useEffect(() => {
+    localStorage.setItem("ln-reader-prefs", JSON.stringify({ fontSize, lineHeight, fontFamily }));
+  }, [fontSize, lineHeight, fontFamily]);
+
+  const readerStyle = {
+    fontFamily: fontFamily === "serif" ? "var(--font-playfair)" : "var(--font-inter)",
+    fontSize: FONT_SIZES[fontSize],
+    lineHeight: LINE_HEIGHTS[lineHeight],
+  };
+
   // ── Theme ──────────────────────────────────────────────────────────────
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
@@ -356,6 +411,20 @@ export default function ReaderPage() {
             {theme === "dark" ? "☀" : "☾"}
           </button>
 
+          {/* Font panel toggle */}
+          <button
+            onClick={() => setShowFontPanel((v) => !v)}
+            title="Tùy chỉnh font chữ"
+            className="w-8 h-8 flex items-center justify-center rounded-sm text-sm font-bold transition-all"
+            style={{
+              background: showFontPanel ? "var(--amber-glow)" : "var(--surface)",
+              border: `1px solid ${showFontPanel ? "var(--amber-dim)" : "var(--border)"}`,
+              color: showFontPanel ? "var(--amber)" : "var(--subtle)",
+            }}
+          >
+            Aa
+          </button>
+
           {chapters.length > 1 && novel?.status === "completed" && (
             <button
               onClick={handleRollback}
@@ -407,7 +476,52 @@ export default function ReaderPage() {
           className="w-56 border-r overflow-y-auto flex-shrink-0 hidden md:block"
           style={{ borderColor: "var(--border)", background: "var(--paper)" }}
         >
-          <div className="px-4 pt-5 pb-3">
+          {/* Search input */}
+          <div className="px-3 pt-4 pb-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="🔍 Tìm trong truyện…"
+              className="w-full text-xs px-3 py-2 rounded-sm focus:outline-none"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                color: "var(--body)",
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "var(--amber)")}
+              onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          {/* Search results or chapter list */}
+          {searchQuery.trim() ? (
+            <div className="pb-4 px-1">
+              {searching ? (
+                <p className="text-xs px-3 py-2" style={{ color: "var(--muted)" }}>Đang tìm…</p>
+              ) : searchResults && searchResults.length === 0 ? (
+                <p className="text-xs px-3 py-2" style={{ color: "var(--muted)" }}>Không tìm thấy.</p>
+              ) : searchResults ? (
+                searchResults.map((r, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setActiveChapter(r.chapter_number); setSearchQuery(""); setSearchResults(null); }}
+                    className="w-full text-left px-3 py-2 text-xs transition-all"
+                    style={{ borderBottom: "1px solid var(--border)" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <div className="font-semibold mb-0.5" style={{ color: "var(--amber)" }}>
+                      Ch.{r.chapter_number} — {r.chapter_title}
+                    </div>
+                    <div className="leading-snug" style={{ color: "var(--subtle)" }}>{r.snippet}</div>
+                  </button>
+                ))
+              ) : null}
+            </div>
+          ) : (
+            <>
+          <div className="px-4 pt-3 pb-2">
             <p
               className="text-xs uppercase tracking-widest font-semibold"
               style={{ color: "var(--muted)" }}
@@ -456,6 +570,8 @@ export default function ReaderPage() {
               );
             })}
           </div>
+            </>
+          )}
         </nav>
 
         {/* ── Reader area ── */}
@@ -635,9 +751,7 @@ export default function ReaderPage() {
                     background: "var(--surface)",
                     border: "1px solid var(--border)",
                     color: "var(--body)",
-                    fontFamily: "var(--font-playfair)",
-                    fontSize: "1.05rem",
-                    lineHeight: "1.8",
+                    ...readerStyle,
                   }}
                   onFocus={(e) => {
                     e.target.style.borderColor = "var(--amber)";
@@ -652,10 +766,8 @@ export default function ReaderPage() {
                 <div
                   className="max-w-none"
                   style={{
-                    fontFamily: "var(--font-playfair)",
+                    ...readerStyle,
                     color: "var(--body)",
-                    lineHeight: "1.8",
-                    fontSize: "1.05rem",
                   }}
                 >
                   {currentChapter.content.split("\n").map((para, i) =>
@@ -730,6 +842,94 @@ export default function ReaderPage() {
           )}
         </main>
       </div>
+
+      {/* ── Font panel ── */}
+      {showFontPanel && (
+        <div
+          className="fixed top-16 right-4 z-40 rounded-sm p-4 w-60"
+          style={{
+            background: "var(--paper)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+          }}
+        >
+          {/* Font size */}
+          <div className="mb-4">
+            <span className="text-xs uppercase tracking-widest font-semibold block mb-2" style={{ color: "var(--muted)" }}>
+              Cỡ chữ
+            </span>
+            <div className="flex gap-1">
+              {(["S", "M", "L", "XL"] as FontSize[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFontSize(s)}
+                  className="flex-1 py-1.5 rounded-sm text-xs font-semibold transition-all"
+                  style={{
+                    background: fontSize === s ? "var(--amber)" : "var(--surface)",
+                    color: fontSize === s ? "var(--ink)" : "var(--subtle)",
+                    border: `1px solid ${fontSize === s ? "var(--amber)" : "var(--border)"}`,
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Line height */}
+          <div className="mb-4">
+            <span className="text-xs uppercase tracking-widest font-semibold block mb-2" style={{ color: "var(--muted)" }}>
+              Giãn dòng
+            </span>
+            <div className="flex gap-1">
+              {(["compact", "normal", "relaxed"] as LineHeight[]).map((lh) => {
+                const lhLabels: Record<LineHeight, string> = { compact: "Chật", normal: "Vừa", relaxed: "Thoáng" };
+                return (
+                  <button
+                    key={lh}
+                    onClick={() => setLineHeight(lh)}
+                    className="flex-1 py-1.5 rounded-sm text-xs font-semibold transition-all"
+                    style={{
+                      background: lineHeight === lh ? "var(--amber)" : "var(--surface)",
+                      color: lineHeight === lh ? "var(--ink)" : "var(--subtle)",
+                      border: `1px solid ${lineHeight === lh ? "var(--amber)" : "var(--border)"}`,
+                    }}
+                  >
+                    {lhLabels[lh]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Font family */}
+          <div>
+            <span className="text-xs uppercase tracking-widest font-semibold block mb-2" style={{ color: "var(--muted)" }}>
+              Font chữ
+            </span>
+            <div className="flex gap-1">
+              {([
+                { value: "serif" as FontFamily, label: "Serif" },
+                { value: "sans" as FontFamily, label: "Sans" },
+              ]).map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setFontFamily(value)}
+                  className="flex-1 py-1.5 rounded-sm text-xs font-semibold transition-all"
+                  style={{
+                    background: fontFamily === value ? "var(--amber)" : "var(--surface)",
+                    color: fontFamily === value ? "var(--ink)" : "var(--subtle)",
+                    border: `1px solid ${fontFamily === value ? "var(--amber)" : "var(--border)"}`,
+                    fontFamily: value === "serif" ? "var(--font-playfair)" : "var(--font-inter)",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Timeline modal ── */}
       {showTimeline && (
