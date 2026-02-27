@@ -46,6 +46,7 @@ class NovelStatusResponse(BaseModel):
     current_chapter: int
     title: Optional[str] = None
     premise: Optional[str] = None
+    is_continuation: bool = False
 
 
 class ChapterResponse(BaseModel):

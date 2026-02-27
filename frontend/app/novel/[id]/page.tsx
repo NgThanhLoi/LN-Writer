@@ -22,6 +22,7 @@ type NovelMeta = {
   current_chapter: number;
   title: string | null;
   premise: string | null;
+  is_continuation: boolean;
 };
 
 export default function ReaderPage() {
@@ -388,6 +389,14 @@ export default function ReaderPage() {
               <p className="text-xs mt-0.5 max-w-md truncate" style={{ color: "var(--muted)" }}>
                 {novel.premise}
               </p>
+            )}
+            {novel?.is_continuation && (
+              <span
+                className="inline-block text-xs px-2 py-0.5 rounded-sm mt-1 font-semibold"
+                style={{ background: "var(--amber-glow)", color: "var(--amber)", border: "1px solid var(--amber-dim)" }}
+              >
+                Tiếp nối từ nội dung gốc
+              </span>
             )}
           </div>
         </div>

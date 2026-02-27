@@ -262,6 +262,7 @@ async def get_novel(novel_id: str):
         current_chapter=row["current_chapter"],
         title=title,
         premise=premise,
+        is_continuation=bool(row.get("is_continuation", 0)),
     )
 
 
