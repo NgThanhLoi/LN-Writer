@@ -231,6 +231,19 @@ def save_summary(novel_id: str, chapter_number: int, summary: str) -> None:
         """, (novel_id, chapter_number, summary))
 
 
+def delete_chapters_from(novel_id: str, from_number: int) -> None:
+    """Delete chapters with number >= from_number and their summaries (one transaction)."""
+    with _conn() as conn:
+        conn.execute(
+            "DELETE FROM chapter_summaries WHERE novel_id=? AND chapter_number>=?",
+            (novel_id, from_number),
+        )
+        conn.execute(
+            "DELETE FROM chapters WHERE novel_id=? AND number>=?",
+            (novel_id, from_number),
+        )
+
+
 def get_summaries(novel_id: str) -> dict[int, str]:
     with _conn() as conn:
         rows = conn.execute(

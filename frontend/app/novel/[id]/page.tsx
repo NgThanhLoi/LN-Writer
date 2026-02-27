@@ -36,6 +36,9 @@ export default function ReaderPage() {
   const [error, setError] = useState("");
   const [regenning, setRegenning] = useState<number | null>(null);
   const [regenMsg, setRegenMsg] = useState("");
+  const [rollingBack, setRollingBack] = useState(false);
+  const [timeline, setTimeline] = useState<{ name: string; role: string; chapters: number[] }[] | null>(null);
+  const [showTimeline, setShowTimeline] = useState(false);
 
   // ── Theme ──────────────────────────────────────────────────────────────
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -175,11 +178,42 @@ export default function ReaderPage() {
     }
   }
 
-  async function handleDownload() {
+  function handleDownload(format: "md" | "txt" | "epub" = "md") {
     const a = document.createElement("a");
-    a.href = `${API}/novels/${id}/download`;
+    a.href = format === "md"
+      ? `${API}/novels/${id}/download`
+      : `${API}/novels/${id}/download/${format}`;
     a.download = "";
     a.click();
+  }
+
+  async function handleRollback() {
+    const last = chapters[chapters.length - 1];
+    if (!confirm(`Xóa chương ${last.number} "${last.title}"?\nGiữ lại ${chapters.length - 1} chương đầu. Không thể hoàn tác.`)) return;
+    setRollingBack(true);
+    try {
+      const res = await fetch(`${API}/novels/${id}/rollback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keep_chapters: chapters.length - 1 }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      window.location.reload();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e));
+      setRollingBack(false);
+    }
+  }
+
+  async function handleTimeline() {
+    setShowTimeline(true);
+    if (timeline) return;
+    try {
+      const res = await fetch(`${API}/novels/${id}/timeline`);
+      if (res.ok) setTimeline(await res.json());
+    } catch {
+      setTimeline([]);
+    }
   }
 
   // ── Loading / Error states ──────────────────────────────────────────────
@@ -265,26 +299,46 @@ export default function ReaderPage() {
             {theme === "dark" ? "☀" : "☾"}
           </button>
 
-          {novel?.status === "completed" && (
+          {chapters.length > 1 && novel?.status === "completed" && (
             <button
-              onClick={handleDownload}
-              className="px-4 py-2 rounded-sm text-sm font-semibold uppercase tracking-wider transition-all"
-              style={{
-                background: "transparent",
-                border: "1px solid var(--amber)",
-                color: "var(--amber)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "var(--amber)";
-                (e.currentTarget as HTMLButtonElement).style.color = "var(--ink)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                (e.currentTarget as HTMLButtonElement).style.color = "var(--amber)";
-              }}
+              onClick={handleRollback}
+              disabled={rollingBack}
+              title="Xóa chương cuối"
+              className="px-3 py-2 rounded-sm text-sm transition-all disabled:opacity-40"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
             >
-              Tải xuống .md
+              {rollingBack ? "…" : "↩"}
             </button>
+          )}
+          <button
+            onClick={handleTimeline}
+            title="Character timeline"
+            className="px-3 py-2 rounded-sm text-sm transition-all"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--subtle)" }}
+          >
+            ◈
+          </button>
+          {novel?.status === "completed" && (
+            <div className="flex items-center gap-1">
+              {(["md", "txt", "epub"] as const).map((fmt) => (
+                <button
+                  key={fmt}
+                  onClick={() => handleDownload(fmt)}
+                  className="px-3 py-2 rounded-sm text-xs font-semibold uppercase tracking-wider transition-all"
+                  style={{ background: "transparent", border: "1px solid var(--amber)", color: "var(--amber)" }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--amber)";
+                    (e.currentTarget as HTMLButtonElement).style.color = "var(--ink)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                    (e.currentTarget as HTMLButtonElement).style.color = "var(--amber)";
+                  }}
+                >
+                  .{fmt}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </header>
@@ -564,6 +618,60 @@ export default function ReaderPage() {
           )}
         </main>
       </div>
+
+      {/* ── Timeline modal ── */}
+      {showTimeline && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 px-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={() => setShowTimeline(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-sm p-6 max-h-[80vh] overflow-y-auto"
+            style={{ background: "var(--paper)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold" style={{ fontFamily: "var(--font-playfair)", color: "var(--heading)" }}>
+                Character Timeline
+              </h2>
+              <button onClick={() => setShowTimeline(false)} style={{ color: "var(--muted)" }}>✕</button>
+            </div>
+            {!timeline ? (
+              <p className="text-sm" style={{ color: "var(--muted)" }}>Đang tải…</p>
+            ) : timeline.length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--muted)" }}>Không có dữ liệu.</p>
+            ) : (
+              <div className="space-y-3">
+                {timeline.map((char) => (
+                  <div key={char.name} className="px-3 py-3 rounded-sm" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-sm font-semibold" style={{ color: "var(--heading)" }}>{char.name}</span>
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>{char.role}</span>
+                    </div>
+                    {char.chapters.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {char.chapters.map((n) => (
+                          <button
+                            key={n}
+                            onClick={() => { setActiveChapter(n); setShowTimeline(false); }}
+                            className="text-xs px-2 py-0.5 rounded-sm"
+                            style={{ background: "var(--amber-glow)", color: "var(--amber)", border: "1px solid var(--amber-dim)" }}
+                          >
+                            Ch.{n}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>Không xuất hiện trong chương nào</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

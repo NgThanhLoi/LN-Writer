@@ -60,6 +60,10 @@ class UpdateChapterRequest(BaseModel):
     content: str
 
 
+class RollbackRequest(BaseModel):
+    keep_chapters: int  # keep chapters 1..keep_chapters, delete the rest
+
+
 class AgentConfig(BaseModel):
     provider: str   # "gemini" | "openai" | "ollama"
     model: str

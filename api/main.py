@@ -26,6 +26,7 @@ from api.models import (
     CreateNovelRequest, ApproveChapter1Request, ContinueNovelRequest,
     ApproveCharactersRequest, NovelListItem, NovelStatusResponse, ChapterResponse,
     SettingsRequest, SettingsResponse, AgentConfig, UpdateChapterRequest, StyleConfig,
+    RollbackRequest,
 )
 from api.service import (
     broadcaster, checkpoint_gate, start_novel_pipeline,
@@ -336,6 +337,180 @@ async def download_novel(novel_id: str):
     )
 
 
+# ── GET /novels/{id}/download/txt ─────────────────────────────────────────
+
+@app.get("/novels/{novel_id}/download/txt")
+async def download_txt(novel_id: str):
+    from fastapi.responses import Response
+    row = db.get_novel(novel_id)
+    if not row:
+        raise HTTPException(404, "Novel not found")
+    if row["status"] != "completed":
+        raise HTTPException(400, "Novel not yet completed")
+
+    chapters = db.get_chapters(novel_id)
+    title, premise = "", ""
+    if row["blueprint_json"]:
+        bp = json.loads(row["blueprint_json"])
+        title = bp.get("title", "")
+        premise = bp.get("premise", "")
+
+    sep = "═" * 60
+    thin = "─" * 40
+    lines = [f"{title}\n\n{premise}\n\n{sep}\n\n"]
+    for ch in chapters:
+        lines.append(f"CHƯƠNG {ch['number']}: {ch['title'].upper()}\n\n")
+        lines.append(ch["content"].strip())
+        lines.append(f"\n\n{thin}\n\n")
+
+    safe_title = (title[:40] or novel_id[:8]).replace("/", "-").replace("\\", "-")
+    return Response(
+        content="".join(lines).encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}.txt"'},
+    )
+
+
+# ── GET /novels/{id}/download/epub ────────────────────────────────────────
+
+@app.get("/novels/{novel_id}/download/epub")
+async def download_epub(novel_id: str):
+    try:
+        from ebooklib import epub as _epub
+    except ImportError:
+        raise HTTPException(500, "epub export requires: pip install ebooklib")
+
+    import tempfile, re
+
+    row = db.get_novel(novel_id)
+    if not row:
+        raise HTTPException(404, "Novel not found")
+    if row["status"] != "completed":
+        raise HTTPException(400, "Novel not yet completed")
+
+    chapters = db.get_chapters(novel_id)
+    title, premise = "Light Novel", ""
+    if row["blueprint_json"]:
+        bp = json.loads(row["blueprint_json"])
+        title = bp.get("title", title)
+        premise = bp.get("premise", "")
+
+    book = _epub.EpubBook()
+    book.set_title(title)
+    book.set_language("vi")
+    if premise:
+        book.add_metadata("DC", "description", premise)
+
+    epub_chapters = []
+    for ch in chapters:
+        paras = "".join(
+            f"<p>{line}</p>"
+            for line in ch["content"].split("\n")
+            if line.strip()
+        )
+        item = _epub.EpubHtml(
+            title=ch["title"],
+            file_name=f"ch{ch['number']:03d}.xhtml",
+            lang="vi",
+        )
+        item.content = (
+            f'<h2>Chương {ch["number"]}: {ch["title"]}</h2>{paras}'
+        ).encode("utf-8")
+        book.add_item(item)
+        epub_chapters.append(item)
+
+    book.toc = epub_chapters
+    book.add_item(_epub.EpubNcx())
+    book.add_item(_epub.EpubNav())
+    book.spine = ["nav"] + epub_chapters
+
+    safe_title = (title[:40] or novel_id[:8]).replace("/", "-").replace("\\", "-")
+    tmp = tempfile.NamedTemporaryFile(suffix=".epub", delete=False)
+    tmp.close()
+    _epub.write_epub(tmp.name, book)
+    return FileResponse(
+        tmp.name,
+        media_type="application/epub+zip",
+        filename=f"{safe_title}.epub",
+    )
+
+
+# ── POST /novels/{id}/rollback ─────────────────────────────────────────────
+
+@app.post("/novels/{novel_id}/rollback")
+async def rollback_novel(novel_id: str, req: RollbackRequest):
+    from datetime import datetime
+
+    row = db.get_novel(novel_id)
+    if not row or not row["blueprint_json"]:
+        raise HTTPException(404, "Novel not found")
+    if row["status"] != "completed":
+        raise HTTPException(400, "Novel must be completed to rollback")
+
+    chapters = db.get_chapters(novel_id)
+    keep = req.keep_chapters
+    if keep < 1:
+        raise HTTPException(400, "keep_chapters must be >= 1")
+    if keep >= len(chapters):
+        raise HTTPException(400, f"Novel only has {len(chapters)} chapter(s) — nothing to remove")
+
+    # Delete chapters + summaries from DB
+    db.delete_chapters_from(novel_id, keep + 1)
+
+    # Trim blueprint chapters list
+    bp_data = json.loads(row["blueprint_json"])
+    bp_data["chapters"] = [c for c in bp_data["chapters"] if c["number"] <= keep]
+    bp_data["target_chapters"] = keep
+    new_bp_json = json.dumps(bp_data, ensure_ascii=False)
+    db.update_novel_blueprint(novel_id, new_bp_json)
+
+    # Rebuild markdown from remaining chapters
+    remaining = db.get_chapters(novel_id)
+    title = bp_data.get("title", "")
+    premise = bp_data.get("premise", "")
+    safe_title = (title[:40] or novel_id[:8]).replace("/", "-").replace("\\", "-")
+    out_dir = Path(__file__).parent.parent / "output"
+    out_dir.mkdir(exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    md_path = out_dir / f"{ts}_{safe_title}.md"
+    lines = [f"# {title}\n", f"*{premise}*\n\n"]
+    for ch in remaining:
+        lines.append(f"## Chương {ch['number']}: {ch['title']}\n\n")
+        lines.append(ch["content"])
+        lines.append("\n\n---\n\n")
+    md_path.write_text("".join(lines), encoding="utf-8")
+    db.update_novel_output_path(novel_id, str(md_path))
+    db.update_novel_status(novel_id, "completed", keep)
+
+    return {"ok": True, "chapters_kept": keep}
+
+
+# ── GET /novels/{id}/timeline ──────────────────────────────────────────────
+
+@app.get("/novels/{novel_id}/timeline")
+async def character_timeline(novel_id: str):
+    row = db.get_novel(novel_id)
+    if not row or not row["blueprint_json"]:
+        raise HTTPException(404, "Novel not found")
+
+    bp = json.loads(row["blueprint_json"])
+    characters = bp.get("characters", [])
+    chapters = db.get_chapters(novel_id)
+
+    result = []
+    for char in characters:
+        name = char.get("name", "")
+        role = char.get("role", "")
+        appears_in = [
+            ch["number"]
+            for ch in chapters
+            if name and name.lower() in ch["content"].lower()
+        ]
+        result.append({"name": name, "role": role, "chapters": appears_in})
+
+    return result
+
+
 # ── WS /novels/{id}/ws ────────────────────────────────────────────────────
 
 @app.websocket("/novels/{novel_id}/ws")
@@ -359,6 +534,7 @@ async def novel_ws(websocket: WebSocket, novel_id: str):
                 "title": ch["title"],
                 "word_count": len(ch["content"].split()),
                 "audit_passed": bool(ch["audit_passed"]),
+                "audit_notes": ch["audit_notes"],
             })
 
     try:
