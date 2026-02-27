@@ -334,7 +334,11 @@ class AsyncNovelService:
             char_key = f"{novel_id}:characters"
             _BridgeEvent(loop, char_key).wait()
             approved_dicts = checkpoint_gate.get_data(char_key) or []
-            approved_new_chars = [CharacterProfile(**c) for c in approved_dicts]
+            approved_new_chars = []
+            for c in approved_dicts:
+                c = dict(c)
+                rels = [CharacterRelationship(**r) for r in c.pop("relationships", [])]
+                approved_new_chars.append(CharacterProfile(**c, relationships=rels))
 
             # Merge into blueprint and save
             all_characters = blueprint.characters + approved_new_chars

@@ -105,6 +105,7 @@ export default function WritePage() {
         } else if (event.type === "chapter_progress") {
           setWritingProgress({ chapter_number: event.chapter_number, chapter_title: event.chapter_title, words_so_far: event.words_so_far, target: event.target });
         } else if (event.type === "regen_start") {
+          setWritingProgress(null);
           setLogs((prev) => [...prev, { msg: `↻ Đang viết lại chương ${event.chapter_number}…`, ts: Date.now() }]);
         } else if (event.type === "regen_done") {
           setWritingProgress(null);
@@ -339,9 +340,16 @@ export default function WritePage() {
             </div>
           )}
           {status === "disconnected" && (
-            <div className="m-4 px-4 py-3 rounded-sm text-sm"
+            <div className="m-4 px-4 py-3 rounded-sm text-sm flex items-center justify-between"
               style={{ background: "var(--red-dim)", color: "#FCA5A5" }}>
-              Mất kết nối. Reload trang để thử lại.
+              <span>Mất kết nối sau nhiều lần thử.</span>
+              <button
+                onClick={() => window.location.reload()}
+                className="ml-4 px-3 py-1 rounded-sm text-xs font-semibold"
+                style={{ background: "#FCA5A5", color: "#7f1d1d" }}
+              >
+                Tải lại trang
+              </button>
             </div>
           )}
         </main>
