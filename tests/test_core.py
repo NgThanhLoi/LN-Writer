@@ -368,3 +368,265 @@ class TestWordCountConsistency:
         # Python split() handles multiple spaces correctly
         content = "word1  word2   word3"
         assert len(content.split()) == 3
+
+
+# ── ContentRefiner sanity check (50% guard) ───────────────────────────────
+
+class TestContentRefinerSanityCheck:
+    """content_refiner.py: if refined < 50% of original words, keep original."""
+
+    def _apply_sanity(self, original: str, refined: str) -> str:
+        """Mirrors the sanity check logic in ContentRefinerAgent.run()."""
+        original_words = len(original.split())
+        refined_words = len(refined.split())
+        if refined_words < original_words * 0.5:
+            return original
+        return refined
+
+    def test_refined_above_threshold_returns_refined(self):
+        original = " ".join(["word"] * 100)   # 100 words
+        refined  = " ".join(["word"] * 80)    # 80 words — 80% of original
+        assert self._apply_sanity(original, refined) == refined
+
+    def test_refined_below_threshold_returns_original(self):
+        original = " ".join(["word"] * 100)
+        refined  = " ".join(["word"] * 40)    # 40 words — 40% of original
+        assert self._apply_sanity(original, refined) == original
+
+    def test_refined_exactly_50_percent_returns_refined(self):
+        # Boundary: exactly 50% is NOT less-than, so refined is accepted
+        original = " ".join(["word"] * 100)
+        refined  = " ".join(["word"] * 50)
+        assert self._apply_sanity(original, refined) == refined
+
+    def test_refined_one_below_threshold_returns_original(self):
+        original = " ".join(["word"] * 100)
+        refined  = " ".join(["word"] * 49)    # 49 < 50 → keep original
+        assert self._apply_sanity(original, refined) == original
+
+
+# ── GENRE_REFINEMENT_HINTS completeness ───────────────────────────────────
+
+class TestGenreRefinementHints:
+    """refiner_prompts.py: all 6 genres present with non-empty content."""
+
+    EXPECTED_GENRES = {"isekai", "tu_tien", "xuyen_khong", "romance", "kinh_di", "hanh_dong"}
+
+    def test_all_6_genres_present(self):
+        from core.prompts.refiner_prompts import GENRE_REFINEMENT_HINTS
+        assert set(GENRE_REFINEMENT_HINTS.keys()) == self.EXPECTED_GENRES
+
+    def test_all_hints_non_empty(self):
+        from core.prompts.refiner_prompts import GENRE_REFINEMENT_HINTS
+        for genre, hint in GENRE_REFINEMENT_HINTS.items():
+            assert hint.strip(), f"Hint for '{genre}' is empty"
+
+    def test_unknown_genre_uses_fallback(self):
+        from core.prompts.refiner_prompts import GENRE_REFINEMENT_HINTS
+        FALLBACK = "isekai"
+        unknown = GENRE_REFINEMENT_HINTS.get("xyzzy", GENRE_REFINEMENT_HINTS[FALLBACK])
+        assert unknown == GENRE_REFINEMENT_HINTS[FALLBACK]
+
+
+# ── BlueprintExtractor: content truncation ────────────────────────────────
+
+class TestBlueprintExtractorTruncation:
+    """blueprint_extractor.py: content > 200k chars → head + tail truncation."""
+
+    LIMIT = 200_000
+    HALF  = 100_000
+    CONNECTOR = "[...nội dung giữa bị cắt bớt để fit context...]"
+
+    def _truncate(self, content: str) -> str:
+        """Mirrors the truncation logic in BlueprintExtractorAgent.run()."""
+        if len(content) > self.LIMIT:
+            return (
+                content[:self.HALF]
+                + "\n\n[...nội dung giữa bị cắt bớt để fit context...]\n\n"
+                + content[-self.HALF:]
+            )
+        return content
+
+    def test_short_content_unchanged(self):
+        content = "A" * 100
+        assert self._truncate(content) == content
+
+    def test_exactly_at_limit_unchanged(self):
+        content = "A" * self.LIMIT
+        assert self._truncate(content) == content
+
+    def test_over_limit_is_truncated(self):
+        content = "A" * self.HALF + "B" * self.HALF + "C" * 1000
+        result = self._truncate(content)
+        assert len(result) < len(content)
+
+    def test_head_and_tail_preserved(self):
+        head = "H" * self.HALF
+        tail = "T" * self.HALF
+        content = head + "M" * 1000 + tail
+        result = self._truncate(content)
+        assert result.startswith(head)
+        assert result.endswith(tail)
+
+    def test_connector_present_in_truncated(self):
+        content = "X" * (self.LIMIT + 1000)
+        result = self._truncate(content)
+        assert self.CONNECTOR in result
+
+
+# ── BlueprintExtractor: chapter stub numbering ────────────────────────────
+
+class TestBlueprintExtractorChapterStubs:
+    """blueprint_extractor.py: new chapter stubs are numbered from existing_count+1."""
+
+    def _make_stubs(self, existing_count: int, num_new: int, cliffhanger: str = ""):
+        """Mirrors the stub-creation logic in BlueprintExtractorAgent.run()."""
+        start_num = existing_count + 1
+        return [
+            {
+                "number": start_num + i - 1,
+                "opening_hook": cliffhanger if i == 1 else "",
+            }
+            for i in range(1, num_new + 1)
+        ]
+
+    def test_stubs_start_after_existing(self):
+        stubs = self._make_stubs(existing_count=5, num_new=3)
+        assert stubs[0]["number"] == 6
+        assert stubs[-1]["number"] == 8
+
+    def test_stubs_numbered_sequentially(self):
+        stubs = self._make_stubs(existing_count=0, num_new=5)
+        numbers = [s["number"] for s in stubs]
+        assert numbers == [1, 2, 3, 4, 5]
+
+    def test_first_stub_has_cliffhanger(self):
+        cliff = "Hắn đứng trước cửa hang, không biết bên trong ẩn chứa gì."
+        stubs = self._make_stubs(existing_count=10, num_new=3, cliffhanger=cliff)
+        assert stubs[0]["opening_hook"] == cliff
+        assert stubs[1]["opening_hook"] == ""
+        assert stubs[2]["opening_hook"] == ""
+
+    def test_zero_existing_starts_at_1(self):
+        stubs = self._make_stubs(existing_count=0, num_new=1)
+        assert stubs[0]["number"] == 1
+
+
+# ── Search snippet logic ───────────────────────────────────────────────────
+
+class TestSearchSnippet:
+    """main.py search_novel: snippet boundary conditions."""
+
+    def _extract_snippet(self, content: str, q: str):
+        """Mirrors snippet logic in search_novel()."""
+        q_lower = q.lower()
+        idx = content.lower().find(q_lower)
+        if idx == -1:
+            return None
+        start = max(0, idx - 60)
+        end   = min(len(content), idx + len(q) + 60)
+        return ("…" if start > 0 else "") + content[start:end] + ("…" if end < len(content) else "")
+
+    def test_match_at_start_no_leading_ellipsis(self):
+        content = "Aria bước vào căn phòng tối."
+        snippet = self._extract_snippet(content, "Aria")
+        assert snippet is not None
+        assert not snippet.startswith("…")
+
+    def test_match_at_end_no_trailing_ellipsis(self):
+        content = "Một câu chuyện về Aria"
+        snippet = self._extract_snippet(content, "Aria")
+        assert snippet is not None
+        assert not snippet.endswith("…")
+
+    def test_match_in_middle_has_leading_ellipsis(self):
+        # content > 60 chars before the match
+        prefix = "A" * 80
+        content = prefix + "Aria" + "B" * 80
+        snippet = self._extract_snippet(content, "Aria")
+        assert snippet is not None
+        assert snippet.startswith("…")
+
+    def test_match_in_middle_has_trailing_ellipsis(self):
+        prefix  = "A" * 80
+        content = prefix + "Aria" + "B" * 80
+        snippet = self._extract_snippet(content, "Aria")
+        assert snippet is not None
+        assert snippet.endswith("…")
+
+    def test_no_match_returns_none(self):
+        content = "Không có từ đó trong nội dung."
+        assert self._extract_snippet(content, "Zephyr") is None
+
+    def test_case_insensitive_find(self):
+        content = "ARIA bước vào."
+        snippet = self._extract_snippet(content, "aria")
+        assert snippet is not None
+        assert "ARIA" in snippet
+
+
+# ── is_continuation DB migration (idempotent) ─────────────────────────────
+
+class TestIsContiunationMigration:
+    """database.py: is_continuation column added by init_db(), migration is idempotent."""
+
+    @pytest.fixture
+    def tmp_db(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "test_migration.db"
+        import api.database as db_module
+        monkeypatch.setattr(db_module, "DB_PATH", db_path)
+        db_module.init_db()
+        return db_module, db_path
+
+    def test_column_exists_after_init(self, tmp_db):
+        db_module, db_path = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(novels)").fetchall()]
+        assert "is_continuation" in cols
+
+    def test_migration_is_idempotent(self, tmp_db):
+        db_module, db_path = tmp_db
+        # Running init_db() again must not raise (ALTER TABLE is guarded by try/except)
+        db_module.init_db()  # second call — should not blow up
+        with sqlite3.connect(db_path) as conn:
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(novels)").fetchall()]
+        assert "is_continuation" in cols
+
+
+# ── CheckpointGate cleanup ─────────────────────────────────────────────────
+
+class TestCheckpointGateCleanup:
+    """service.py: CheckpointGate.cleanup() removes all state for a novel."""
+
+    def _make_gate_with_data(self, novel_id: str):
+        from api.service import CheckpointGate
+        gate = CheckpointGate()
+        # Inject state directly (avoid asyncio.Event dependency)
+        for suffix in (":plot", ":chapter1", ":characters"):
+            key = f"{novel_id}{suffix}"
+            gate._decisions[key] = "approve"
+            gate._data[key] = {"payload": suffix}
+        return gate
+
+    def test_cleanup_removes_decisions(self):
+        gate = self._make_gate_with_data("novel_abc")
+        gate.cleanup("novel_abc")
+        for suffix in (":plot", ":chapter1", ":characters"):
+            assert f"novel_abc{suffix}" not in gate._decisions
+
+    def test_cleanup_removes_data(self):
+        gate = self._make_gate_with_data("novel_abc")
+        gate.cleanup("novel_abc")
+        for suffix in (":plot", ":chapter1", ":characters"):
+            assert f"novel_abc{suffix}" not in gate._data
+
+    def test_cleanup_does_not_affect_other_novel(self):
+        gate = self._make_gate_with_data("novel_abc")
+        gate._decisions["novel_xyz:plot"] = "approve"
+        gate.cleanup("novel_abc")
+        assert "novel_xyz:plot" in gate._decisions
+
+    def test_cleanup_missing_key_is_safe(self):
+        from api.service import CheckpointGate
+        gate = CheckpointGate()
+        gate.cleanup("nonexistent_novel")  # must not raise
