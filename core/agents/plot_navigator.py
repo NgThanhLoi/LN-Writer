@@ -1,5 +1,8 @@
+import logging
 from core.ai_adapter import build_adapter, parse_json_response
 from core.models import StoryBlueprint, Chapter
+
+logger = logging.getLogger(__name__)
 from core.prompts.plot_prompts import PLOT_NAVIGATOR_PROMPT, PLOT_CONTINUATION_PROMPT, GENRE_PLOT_HINTS, GENRE_DISPLAY_NAMES, GENRE_STYLES, ISEKAI_GENRE_STYLE
 from config import DEFAULT_CHAPTERS, DEFAULT_GENRE
 
@@ -8,7 +11,7 @@ class PlotNavigatorAgent:
     def run(self, user_prompt: str, num_chapters: int = DEFAULT_CHAPTERS,
             genre: str = DEFAULT_GENRE) -> StoryBlueprint:
         ai = build_adapter("plot_navigator")
-        print(f"  [PlotNavigator] Generating plot...")
+        logger.info("Generating plot...")
         prompt = PLOT_NAVIGATOR_PROMPT.format(
             user_prompt=user_prompt,
             num_chapters=num_chapters,
@@ -38,14 +41,14 @@ class PlotNavigatorAgent:
             target_chapters=num_chapters,
             chapters=chapters,
         )
-        print(f"  [PlotNavigator] Done: '{blueprint.title}', {len(chapters)} chapters planned.")
+        logger.info(f"Done: '{blueprint.title}', {len(chapters)} chapters planned.")
         return blueprint
 
     def run_continuation(self, blueprint: StoryBlueprint, existing_summary: str,
                          last_cliffhanger: str, num_new_chapters: int,
                          start_chapter: int, genre: str) -> list[Chapter]:
         ai = build_adapter("plot_navigator")
-        print(f"  [PlotNavigator] Generating continuation chapters {start_chapter}+...")
+        logger.info(f"Generating continuation chapters {start_chapter}+...")
         end_chapter = start_chapter + num_new_chapters - 1
         prompt = PLOT_CONTINUATION_PROMPT.format(
             title=blueprint.title,
@@ -73,6 +76,6 @@ class PlotNavigatorAgent:
                 ending_cliffhanger=ch_data["ending_cliffhanger"],
                 outline_beats=ch_data.get("outline_beats", []),
             ))
-        print(f"  [PlotNavigator] Continuation done: {len(chapters)} new chapters planned.")
+        logger.info(f"Continuation done: {len(chapters)} new chapters planned.")
         return chapters
 

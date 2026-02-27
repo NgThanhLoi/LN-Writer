@@ -1,12 +1,15 @@
+import logging
 from core.ai_adapter import build_adapter, parse_json_response
-from core.models import CharacterProfile, Chapter, StoryBlueprint
+from core.models import CharacterProfile, CharacterRelationship, Chapter, StoryBlueprint
+
+logger = logging.getLogger(__name__)
 from core.prompts.character_prompts import CHARACTER_SOUL_PROMPT, CHARACTER_ADDITIONS_PROMPT
 
 
 class CharacterSoulAgent:
     def run(self, blueprint: StoryBlueprint) -> list[CharacterProfile]:
         ai = build_adapter("character_soul")
-        print(f"  [CharacterSoul] Building characters...")
+        logger.info("Building characters...")
         chapters_outline = self._format_chapters_outline(blueprint)
         prompt = CHARACTER_SOUL_PROMPT.format(
             premise=blueprint.premise,
@@ -28,15 +31,23 @@ class CharacterSoulAgent:
                 backstory=ch_data.get("backstory", ""),
                 goals=ch_data.get("goals", []),
                 current_state=ch_data.get("current_state", ""),
+                core_value=ch_data.get("core_value", ""),
+                fear=ch_data.get("fear", ""),
+                weakness=ch_data.get("weakness", ""),
+                catchphrase=ch_data.get("catchphrase", ""),
+                relationships=[
+                    CharacterRelationship(**r)
+                    for r in ch_data.get("relationships", [])
+                ],
             ))
 
-        print(f"  [CharacterSoul] Done: {len(characters)} characters created.")
+        logger.info(f"Done: {len(characters)} characters created.")
         return characters
 
     def run_additions(self, blueprint: StoryBlueprint,
                       new_chapters: list[Chapter]) -> list[CharacterProfile]:
         ai = build_adapter("character_soul")
-        print(f"  [CharacterSoul] Proposing new characters...")
+        logger.info("Proposing new characters...")
         existing = "\n".join(
             f"- {c.name} ({c.role}): {', '.join(c.personality_traits[:2])}"
             for c in blueprint.characters
@@ -63,8 +74,16 @@ class CharacterSoulAgent:
                 backstory=ch_data.get("backstory", ""),
                 goals=ch_data.get("goals", []),
                 current_state=ch_data.get("current_state", ""),
+                core_value=ch_data.get("core_value", ""),
+                fear=ch_data.get("fear", ""),
+                weakness=ch_data.get("weakness", ""),
+                catchphrase=ch_data.get("catchphrase", ""),
+                relationships=[
+                    CharacterRelationship(**r)
+                    for r in ch_data.get("relationships", [])
+                ],
             ))
-        print(f"  [CharacterSoul] Proposed {len(characters)} new character(s).")
+        logger.info(f"Proposed {len(characters)} new character(s).")
         return characters
 
     def _format_chapters_outline(self, blueprint: StoryBlueprint) -> str:

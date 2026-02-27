@@ -1,9 +1,16 @@
 import asyncio
 import json
+import logging
 import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 # Fix Windows console encoding for Vietnamese text in threads
 if sys.platform == "win32":

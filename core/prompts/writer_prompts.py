@@ -23,7 +23,10 @@ DRAFT_MASTER_PROMPT = """Bạn là nhà văn light novel Việt Nam chuyên nghi
 **Yêu cầu viết — BẮT BUỘC:**
 - Viết TỐI THIỂU {target_words} từ. Nếu chưa đủ, mở rộng scene, thêm inner monologue, chi tiết hóa dialogue. KHÔNG được kết thúc sớm.
 - Bắt đầu NGAY bằng nội dung, không có tiêu đề chương
-- Thể hiện rõ giọng nói đặc trưng của từng nhân vật khi họ nói chuyện
+- Thể hiện rõ giọng nói đặc trưng của từng nhân vật khi họ nói chuyện (dùng catchphrase nếu phù hợp)
+- Tạo inner monologue dựa trên core_value và fear của nhân vật POV
+- Tận dụng weakness của nhân vật để tạo tension và drama
+- Thể hiện dynamic relationship giữa các nhân vật qua cách họ tương tác
 - Mở đầu phải bắt đúng hook đã plan: {opening_hook}
 
 ⚠️ CLIFFHANGER — QUAN TRỌNG NHẤT:

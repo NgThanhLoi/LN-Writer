@@ -1,7 +1,10 @@
 import json
+import logging
 import re
 import time
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 from google import genai
 from google.genai import types
 
@@ -56,7 +59,7 @@ class GeminiAdapter(BaseAdapter):
             except Exception as e:
                 last_error = e
                 if attempt < MAX_RETRIES:
-                    print(f"  [retry {attempt}/{MAX_RETRIES}] {e}")
+                    logger.warning(f"Gemini retry {attempt}/{MAX_RETRIES}: {e}")
                     time.sleep(RETRY_DELAY_SECONDS * attempt)
 
         raise RuntimeError(f"Gemini call failed after {MAX_RETRIES} attempts: {last_error}")
@@ -105,7 +108,7 @@ class OpenAIAdapter(BaseAdapter):
             except Exception as e:
                 last_error = e
                 if attempt < MAX_RETRIES:
-                    print(f"  [retry {attempt}/{MAX_RETRIES}] {e}")
+                    logger.warning(f"OpenAI retry {attempt}/{MAX_RETRIES}: {e}")
                     time.sleep(RETRY_DELAY_SECONDS * attempt)
 
         raise RuntimeError(f"OpenAI call failed after {MAX_RETRIES} attempts: {last_error}")
@@ -160,4 +163,7 @@ def parse_json_response(response: str) -> dict:
     text = response.strip()
     text = re.sub(r"^```[^\n]*\n", "", text)  # remove opening ```json or ```
     text = re.sub(r"\n```\s*$", "", text)      # remove closing ``` with any trailing whitespace
-    return json.loads(text.strip())
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in LLM response: {e}") from e

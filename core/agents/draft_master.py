@@ -1,4 +1,8 @@
+import logging
+import time
 from core.ai_adapter import build_adapter
+
+logger = logging.getLogger(__name__)
 from core.models import Chapter, StoryBlueprint, CharacterProfile
 from core.prompts.writer_prompts import DRAFT_MASTER_PROMPT, PREVIOUS_CONTEXT_TEMPLATE
 from core.prompts.plot_prompts import GENRE_STYLES, ISEKAI_GENRE_STYLE
@@ -32,7 +36,7 @@ class DraftMasterAgent:
         chapter_summaries: dict[int, str] | None = None,
         on_progress=None,
     ) -> str:
-        print(f"  [DraftMaster] Writing chapter {chapter.number}: '{chapter.title}'...")
+        logger.info(f"Writing chapter {chapter.number}: '{chapter.title}'...")
 
         content = self._write(chapter, blueprint, characters, previous_chapters, chapter_summaries,
                               on_progress=on_progress)
@@ -41,7 +45,7 @@ class DraftMasterAgent:
         word_count = len(content.split())
         target = blueprint.words_per_chapter
         if word_count < target * MIN_WORD_RATIO:
-            print(f"  [DraftMaster] Word count {word_count} < {int(target * MIN_WORD_RATIO)} target — regenerating...")
+            logger.info(f"Word count {word_count} < {int(target * MIN_WORD_RATIO)} target — regenerating...")
             content = self._write(
                 chapter, blueprint, characters, previous_chapters, chapter_summaries,
                 on_progress=on_progress,
@@ -49,7 +53,7 @@ class DraftMasterAgent:
             )
             word_count = len(content.split())
 
-        print(f"  [DraftMaster] Done: {word_count} words.")
+        logger.info(f"Done: {word_count} words.")
         return content
 
     def _write(
@@ -89,29 +93,67 @@ class DraftMasterAgent:
         if extra_instruction:
             prompt += f"\n\n{extra_instruction}"
 
-        # Stream and accumulate — call on_progress every ~200 words
+        # Warn if prompt is very long (rough estimate: ~3 chars/token for Vietnamese)
+        estimated_tokens = len(prompt) // 3
+        if estimated_tokens > 30000:
+            logger.warning(f"Chapter {chapter.number} prompt is large (~{estimated_tokens} est. tokens) — may approach context limits")
+
+        # Stream and accumulate — retry up to 2 times if stream fails
+        # Each retry resets all state so consumer never sees partial + full mix
         adapter = build_adapter("draft_master")
-        chunks = []
-        word_count = 0
-        last_reported = 0
-        for chunk in adapter.generate_stream(prompt, max_tokens=16384):
-            chunks.append(chunk)
-            word_count += len(chunk.split())
-            if on_progress and word_count - last_reported >= _PROGRESS_EVERY:
-                on_progress(word_count)
-                last_reported = word_count
+        last_error = None
+        chunks: list[str] = []
+        for attempt in range(1, 3):
+            chunks = []
+            word_count = 0
+            last_reported = 0
+            try:
+                for chunk in adapter.generate_stream(prompt, max_tokens=16384):
+                    chunks.append(chunk)
+                    word_count += len(chunk.split())
+                    if on_progress and word_count - last_reported >= _PROGRESS_EVERY:
+                        on_progress(word_count)
+                        last_reported = word_count
+                break  # stream completed successfully
+            except Exception as e:
+                last_error = e
+                if attempt < 2:
+                    logger.warning(f"Stream attempt {attempt} failed, retrying... ({e})")
+                    time.sleep(2)
+        else:
+            raise RuntimeError(f"Stream failed after 2 attempts: {last_error}") from last_error
         return "".join(chunks)
 
     def _format_characters(self, characters: list[CharacterProfile]) -> str:
         lines = []
         for char in characters:
             traits = ", ".join(char.personality_traits)
-            lines.append(
-                f"- {char.name} ({char.role}): {traits}\n"
-                f"  Cách nói: {char.speech_pattern}\n"
+            char_block = [
+                f"- {char.name} ({char.role}): {traits}",
+                f"  Cách nói: {char.speech_pattern}",
                 f"  Trạng thái hiện tại: {char.current_state}"
-            )
-        return "\n".join(lines)
+            ]
+
+            # Thêm thông tin tầng sâu cho inner monologue và conflict
+            if char.core_value:
+                char_block.append(f"  Giá trị cốt lõi: {char.core_value}")
+            if char.fear:
+                char_block.append(f"  Nỗi sợ: {char.fear}")
+            if char.weakness:
+                char_block.append(f"  Điểm yếu: {char.weakness}")
+            if char.catchphrase:
+                char_block.append(f"  Câu nói đặc trưng: '{char.catchphrase}'")
+
+            # Thêm relationships với characters khác
+            if char.relationships:
+                rel_lines = []
+                for rel in char.relationships:
+                    rel_lines.append(f"    + {rel.target_name} ({rel.type}): {rel.dynamic}")
+                char_block.append("  Quan hệ:")
+                char_block.extend(rel_lines)
+
+            lines.append("\n".join(char_block))
+        return "\n\n".join(lines)
 
     def _build_previous_context(
         self,

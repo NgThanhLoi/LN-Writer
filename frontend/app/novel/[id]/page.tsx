@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-const API = "http://localhost:8000";
+import { API } from "../../lib/constants";
 
 type Chapter = {
   number: number;

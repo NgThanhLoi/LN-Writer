@@ -41,17 +41,23 @@ def init_db():
                 PRIMARY KEY (novel_id, chapter_number)
             );
         """)
+        # Indexes for JOIN performance
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chapters_novel_id ON chapters(novel_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_summaries_novel_id ON chapter_summaries(novel_id)")
+
         # Migration: add style_config column if missing (safe for existing DBs)
         try:
             conn.execute("ALTER TABLE novels ADD COLUMN style_config TEXT")
-        except Exception:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
 
         # Migration: add word_count column if missing
         try:
             conn.execute("ALTER TABLE chapters ADD COLUMN word_count INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
 
         # Backfill word_count for existing chapters (approximation via SQL — one-time)
         conn.execute("""
@@ -64,6 +70,7 @@ def init_db():
 @contextmanager
 def _conn():
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     try:
         yield conn

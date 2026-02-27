@@ -5,8 +5,11 @@ progress via WebSocket to all connected clients.
 """
 import asyncio
 import json
+import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger(__name__)
 from dataclasses import asdict
 from typing import Callable
 
@@ -15,7 +18,7 @@ from core.agents.plot_navigator import PlotNavigatorAgent
 from core.agents.character_soul import CharacterSoulAgent
 from core.agents.draft_master import DraftMasterAgent
 from core.agents.final_auditor import FinalAuditorAgent
-from core.models import Chapter, CharacterProfile, NovelProject, NovelStatus, StoryBlueprint
+from core.models import Chapter, CharacterProfile, CharacterRelationship, NovelProject, NovelStatus, StoryBlueprint
 from core.prompts.writer_prompts import CHAPTER_SUMMARY_PROMPT
 from config import GEMINI_API_KEY
 import api.database as db
@@ -241,8 +244,7 @@ class AsyncNovelService:
             })
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Pipeline failed for novel {novel_id}: {e}", exc_info=True)
             db.update_novel_status(novel_id, "failed")
             self._emit(novel_id, "error", {"msg": str(e)})
             raise
@@ -402,8 +404,7 @@ class AsyncNovelService:
             })
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Continue pipeline failed for novel {novel_id}: {e}", exc_info=True)
             db.update_novel_status(novel_id, "failed")
             self._emit(novel_id, "error", {"msg": f"Continue failed: {e}"})
             raise
@@ -479,18 +480,21 @@ class AsyncNovelService:
             })
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Regen failed for novel {novel_id} ch{chapter_number}: {e}", exc_info=True)
             self._emit(novel_id, "error", {"msg": f"Regen failed: {e}"})
             raise
 
     def _generate_summary(self, novel_id: str, chapter) -> str:
         self._emit(novel_id, "log", {"msg": f"Summarizing chapter {chapter.number}..."})
         try:
+            # Lấy đầu + cuối để không mất context mở đầu chương
+            content = chapter.content
+            if len(content) > 4000:
+                content = content[:2000] + "\n…\n" + content[-2000:]
             prompt = CHAPTER_SUMMARY_PROMPT.format(
                 chapter_number=chapter.number,
                 chapter_title=chapter.title,
-                chapter_content=chapter.content[-4000:],
+                chapter_content=content,
             )
             return build_adapter("summarizer").generate(prompt, max_tokens=512).strip()
         except Exception as e:
@@ -519,8 +523,9 @@ class _BridgeEvent:
 
         asyncio.create_task(_watcher())
 
-    def wait(self):
-        self._done.wait()
+    def wait(self, timeout: int = 1800) -> None:
+        if not self._done.wait(timeout=timeout):
+            raise TimeoutError(f"Checkpoint '{self._key}' timed out after {timeout}s — pipeline aborted")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -535,7 +540,10 @@ def _json_to_blueprint(blueprint_json: str) -> StoryBlueprint:
     try:
         data = json.loads(blueprint_json)
         chapters = [Chapter(**ch) for ch in data.get("chapters", [])]
-        characters = [CharacterProfile(**c) for c in data.get("characters", [])]
+        characters = []
+        for c in data.get("characters", []):
+            rels = [CharacterRelationship(**r) for r in c.pop("relationships", [])]
+            characters.append(CharacterProfile(**c, relationships=rels))
         return StoryBlueprint(
             title=data["title"],
             premise=data["premise"],
@@ -576,6 +584,8 @@ def _blueprint_summary(bp: StoryBlueprint) -> dict:
                 "name": c.name,
                 "role": c.role,
                 "personality_traits": c.personality_traits[:2],
+                "core_value": c.core_value,
+                "fear": c.fear,
             }
             for c in bp.characters
         ],

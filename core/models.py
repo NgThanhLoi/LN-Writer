@@ -16,6 +16,13 @@ class NovelStatus(Enum):
 
 
 @dataclass
+class CharacterRelationship:
+    target_name: str          # tên nhân vật kia
+    type: str                 # "friend" | "rival" | "mentor" | "enemy" | "romantic"
+    dynamic: str              # mô tả 1 câu về dynamic cụ thể
+
+
+@dataclass
 class CharacterProfile:
     id: str
     name: str
@@ -25,6 +32,11 @@ class CharacterProfile:
     backstory: str
     goals: List[str]
     current_state: str = ""
+    core_value: str = ""            # Tầng 1: điều nhân vật không bao giờ thỏa hiệp
+    fear: str = ""                  # Tầng 1: nỗi sợ lớn nhất → nguồn conflict
+    weakness: str = ""              # Tầng 3: giới hạn/điểm yếu tạo drama
+    catchphrase: str = ""           # Tầng 7: câu nói/biểu hiện đặc trưng
+    relationships: List[CharacterRelationship] = field(default_factory=list)
 
 
 @dataclass

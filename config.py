@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -56,8 +59,8 @@ AGENT_MODEL_CONFIG: dict = {
         "model":    os.environ.get("FINAL_AUDITOR_MODEL", GEMINI_FLASH_MODEL),
     },
     "summarizer": {
-        "provider": os.environ.get("FINAL_AUDITOR_PROVIDER", "gemini"),
-        "model":    os.environ.get("FINAL_AUDITOR_MODEL", GEMINI_FLASH_MODEL),
+        "provider": os.environ.get("SUMMARIZER_PROVIDER", "gemini"),
+        "model":    os.environ.get("SUMMARIZER_MODEL", GEMINI_FLASH_MODEL),
     },
 }
 
@@ -78,7 +81,7 @@ def _load_settings_json() -> None:
         if "ollama_base_url" in data:
             OLLAMA_BASE_URL = data["ollama_base_url"]
     except Exception as e:
-        print(f"[config] Warning: failed to load settings.json: {e}")
+        logger.warning(f"Failed to load settings.json: {e}")
 
 
 _load_settings_json()

@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-const API = "http://localhost:8000";
-const WS_BASE = "ws://localhost:8000";
+import { API, WS_BASE } from "../../lib/constants";
 
 type LogEntry = { msg: string; ts: number };
 type ChapterMeta = {
@@ -18,7 +17,7 @@ type BlueprintSummary = {
   premise: string;
   world_summary: string;
   chapters: { number: number; title: string; pov_character: string; opening_hook: string; ending_cliffhanger: string }[];
-  characters: { name: string; role: string; personality_traits: string[] }[];
+  characters: { name: string; role: string; personality_traits: string[]; core_value: string; fear: string }[];
 };
 type CheckpointPlotData = { blueprint: BlueprintSummary };
 type CheckpointChapter1Data = { preview: string; word_count: number; audit_passed: boolean; audit_notes: string };
@@ -70,7 +69,12 @@ export default function WritePage() {
       };
 
       ws.onmessage = (ev) => {
-        const event: WSEvent & { seq?: number } = JSON.parse(ev.data);
+        let event: WSEvent & { seq?: number };
+        try {
+          event = JSON.parse(ev.data);
+        } catch {
+          return; // ignore malformed messages
+        }
         if (event.type === "ping") return;
         if (event.seq !== undefined) {
           if (event.seq <= lastSeqRef.current) return;
@@ -147,29 +151,44 @@ export default function WritePage() {
   }, [logs]);
 
   const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function cancelNovel() {
     if (!confirm("Huỷ và xoá novel này?")) return;
     setCancelling(true);
-    await fetch(`${API}/novels/${id}`, { method: "DELETE" });
-    router.push("/novels");
+    try {
+      await fetch(`${API}/novels/${id}`, { method: "DELETE" });
+      router.push("/novels");
+    } catch (err) {
+      setCancelling(false);
+      setActionError(`Huỷ thất bại: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async function approvePlot(decision: "approve" | "reject") {
-    await fetch(`${API}/novels/${id}/approve-plot`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision }),
-    });
-    setPlotCheckpoint(null);
+    try {
+      await fetch(`${API}/novels/${id}/approve-plot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      setPlotCheckpoint(null);
+    } catch (err) {
+      setActionError(`Lỗi duyệt cốt truyện: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async function approveChapter1(action: "approve" | "skip" | "regen") {
-    await fetch(`${API}/novels/${id}/approve-chapter-1`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    setCh1Checkpoint(null);
+    try {
+      await fetch(`${API}/novels/${id}/approve-chapter-1`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      setCh1Checkpoint(null);
+    } catch (err) {
+      setActionError(`Lỗi duyệt chương 1: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   const isRunning = !["completed", "failed", "disconnected", "reconnecting"].includes(status);
@@ -218,6 +237,14 @@ export default function WritePage() {
           )}
         </div>
       </header>
+
+      {actionError && (
+        <div className="px-6 py-2 text-sm flex items-center justify-between"
+          style={{ background: "#7f1d1d", color: "#FCA5A5" }}>
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} style={{ marginLeft: "1rem", opacity: 0.7 }}>✕</button>
+        </div>
+      )}
 
       {/* ── Body: 2-panel layout ── */}
       <div className="flex flex-1 overflow-hidden">
@@ -399,9 +426,13 @@ function BlueprintPanel({ blueprint, chapters }: { blueprint: BlueprintSummary; 
         <p className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "var(--muted)" }}>Nhân vật</p>
         <div className="space-y-2">
           {blueprint.characters.map((c) => (
-            <div key={c.name} className="text-xs" style={{ color: "var(--subtle)" }}>
-              <span style={{ color: "var(--body)" }}>{c.name}</span>
-              <span style={{ color: "var(--muted)" }}> · {c.role}</span>
+            <div key={c.name} className="text-xs space-y-0.5" style={{ color: "var(--subtle)" }}>
+              <div>
+                <span style={{ color: "var(--body)" }}>{c.name}</span>
+                <span style={{ color: "var(--muted)" }}> · {c.role}</span>
+              </div>
+              {c.core_value && <div style={{ color: "var(--muted)" }}>★ {c.core_value}</div>}
+              {c.fear && <div style={{ color: "var(--muted)" }}>⚠ {c.fear}</div>}
             </div>
           ))}
         </div>

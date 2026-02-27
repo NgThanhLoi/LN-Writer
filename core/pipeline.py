@@ -5,7 +5,7 @@ from core.agents.draft_master import DraftMasterAgent
 from core.agents.final_auditor import FinalAuditorAgent
 from core.ai_adapter import GeminiAdapter
 from core.prompts.writer_prompts import CHAPTER_SUMMARY_PROMPT
-from config import DEFAULT_CHAPTERS, DEFAULT_WORDS_PER_CHAPTER, FINAL_AUDITOR_MODEL
+from config import DEFAULT_CHAPTERS, DEFAULT_GENRE, DEFAULT_WORDS_PER_CHAPTER, FINAL_AUDITOR_MODEL
 
 MAX_REGEN_PER_CHAPTER = 3
 

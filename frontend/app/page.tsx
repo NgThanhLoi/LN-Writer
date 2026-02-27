@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-const API = "http://localhost:8000";
+import { API } from "./lib/constants";
 
 type Tone = "light" | "neutral" | "tense";
 type DialogueRatio = "low" | "medium" | "high";

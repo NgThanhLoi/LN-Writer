@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-const API = "http://localhost:8000";
-const WS_BASE = "ws://localhost:8000";
+import { API, WS_BASE } from "../lib/constants";
 
 const GENRE_LABELS: Record<string, string> = {
   isekai: "Isekai", tu_tien: "Tu tiên",
@@ -57,6 +56,7 @@ export default function NovelsPage() {
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>({ open: false });
+  const [modalError, setModalError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const modalNovelIdRef = useRef<string | null>(null);
 
@@ -72,7 +72,13 @@ export default function NovelsPage() {
     const ws = new WebSocket(`${WS_BASE}/novels/${novelId}/ws`);
     wsRef.current = ws;
     ws.onmessage = (ev) => {
-      const event = JSON.parse(ev.data);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let event: any;
+      try {
+        event = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
       if (event.type === "checkpoint_characters") {
         setModal((m) => m.open && m.novel.id === novelId
           ? { open: true, step: 2, novel: m.novel, chars: event.characters, edited: event.characters, loading: false }
@@ -88,7 +94,7 @@ export default function NovelsPage() {
         router.push(`/write/${novelId}`);
       }
     };
-    ws.onerror = () => {};
+    ws.onerror = (e) => { console.error("WS error:", e); };
     ws.onclose = () => {};
   }
 
@@ -106,44 +112,70 @@ export default function NovelsPage() {
     wsRef.current = null;
     modalNovelIdRef.current = null;
     setModal({ open: false });
+    setModalError(null);
   }
 
   async function handleStartContinue() {
     if (!modal.open || modal.step !== 1) return;
     setModal((m) => m.open && m.step === 1 ? { ...m, loading: true } : m);
-    await fetch(`${API}/novels/${modal.novel.id}/continue`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ num_chapters: modal.numChapters, genre: modal.genre }),
-    });
-    // WS will fire checkpoint_characters when ready
+    setModalError(null);
+    try {
+      const res = await fetch(`${API}/novels/${modal.novel.id}/continue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ num_chapters: modal.numChapters, genre: modal.genre }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // WS will fire checkpoint_characters when ready
+    } catch (err) {
+      setModal((m) => m.open && m.step === 1 ? { ...m, loading: false } : m);
+      setModalError(`Không thể bắt đầu: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async function handleApproveCharacters() {
     if (!modal.open || modal.step !== 2) return;
     setModal((m) => m.open && m.step === 2 ? { ...m, loading: true } : m);
-    await fetch(`${API}/novels/${modal.novel.id}/approve-characters`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ characters: modal.edited }),
-    });
-    // WS will fire checkpoint_plot
+    setModalError(null);
+    try {
+      const res = await fetch(`${API}/novels/${modal.novel.id}/approve-characters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ characters: modal.edited }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // WS will fire checkpoint_plot
+    } catch (err) {
+      setModal((m) => m.open && m.step === 2 ? { ...m, loading: false } : m);
+      setModalError(`Lỗi duyệt nhân vật: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async function handleApprovePlot() {
     if (!modal.open || modal.step !== 3) return;
     setModal((m) => m.open && m.step === 3 ? { ...m, loading: true } : m);
-    await fetch(`${API}/novels/${modal.novel.id}/approve-plot`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision: "approve" }),
-    });
-    // WS will fire done → navigate
+    setModalError(null);
+    try {
+      const res = await fetch(`${API}/novels/${modal.novel.id}/approve-plot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "approve" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // WS will fire done → navigate
+    } catch (err) {
+      setModal((m) => m.open && m.step === 3 ? { ...m, loading: false } : m);
+      setModalError(`Lỗi duyệt cốt truyện: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async function handleDelete(novelId: string) {
-    await fetch(`${API}/novels/${novelId}`, { method: "DELETE" });
-    setNovels((prev) => prev.filter((n) => n.id !== novelId));
+    try {
+      await fetch(`${API}/novels/${novelId}`, { method: "DELETE" });
+      setNovels((prev) => prev.filter((n) => n.id !== novelId));
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
     setConfirmDelete(null);
   }
 
@@ -297,6 +329,13 @@ export default function NovelsPage() {
                   style={{ background: modal.step >= s ? "var(--amber)" : "var(--border)" }} />
               ))}
             </div>
+
+            {modalError && (
+              <div className="mb-4 px-3 py-2 rounded-sm text-xs"
+                style={{ background: "#7f1d1d", color: "#FCA5A5" }}>
+                {modalError}
+              </div>
+            )}
 
             {/* Step 1 — Config */}
             {modal.step === 1 && (
