@@ -129,11 +129,12 @@ export default function LandingPage() {
             style={{ color: "var(--muted)" }}>
             Thể loại
           </span>
-          <div className="grid grid-cols-4 gap-2">
-            {(["isekai", "tu_tien", "xuyen_khong", "romance"] as const).map((g) => {
+          <div className="grid grid-cols-3 gap-2">
+            {(["isekai", "tu_tien", "xuyen_khong", "romance", "kinh_di", "hanh_dong"] as const).map((g) => {
               const labels: Record<string, string> = {
                 isekai: "Isekai", tu_tien: "Tu tiên",
                 xuyen_khong: "Xuyên không", romance: "Romance",
+                kinh_di: "Kinh dị", hanh_dong: "Hành động",
               };
               return (
                 <button key={g} type="button" onClick={() => setGenre(g)}

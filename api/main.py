@@ -279,7 +279,10 @@ async def update_chapter(novel_id: str, chapter_number: int, req: UpdateChapterR
         raise HTTPException(404, "Novel not found")
     if not db.get_chapter(novel_id, chapter_number):
         raise HTTPException(404, "Chapter not found")
-    db.update_chapter_content(novel_id, chapter_number, req.content)
+    if req.content is not None:
+        db.update_chapter_content(novel_id, chapter_number, req.content)
+    if req.notes is not None:
+        db.update_chapter_notes(novel_id, chapter_number, req.notes)
     return {"ok": True}
 
 

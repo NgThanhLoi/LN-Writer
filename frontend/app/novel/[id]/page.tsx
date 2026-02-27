@@ -13,6 +13,7 @@ type Chapter = {
   audit_passed: boolean;
   audit_notes: string;
   word_count: number;
+  notes: string;
 };
 
 type NovelMeta = {
@@ -69,8 +70,22 @@ export default function ReaderPage() {
         setNovel(await novelRes.json());
         const chs: Chapter[] = await chaptersRes.json();
         setChapters(chs);
-        if (chs.length > 0 && !chs.find((c) => c.number === activeChapter)) {
-          setActiveChapter(chs[0].number);
+        // Restore reading position from localStorage (unless ?ch= URL param present)
+        if (chs.length > 0) {
+          const urlCh = searchParams.get("ch");
+          if (!urlCh) {
+            const saved = localStorage.getItem(`ln-reader-${id}`);
+            if (saved) {
+              const n = parseInt(saved, 10);
+              if (chs.find((c) => c.number === n)) {
+                setActiveChapter(n);
+              }
+            } else if (!chs.find((c) => c.number === activeChapter)) {
+              setActiveChapter(chs[0].number);
+            }
+          } else if (!chs.find((c) => c.number === activeChapter)) {
+            setActiveChapter(chs[0].number);
+          }
         }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : String(e));
@@ -95,12 +110,31 @@ export default function ReaderPage() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [activeChapter, chapters.length]);
 
+  // ── Persist reading position ────────────────────────────────────────────
+  useEffect(() => {
+    if (!loading && chapters.length > 0) {
+      localStorage.setItem(`ln-reader-${id}`, String(activeChapter));
+    }
+  }, [activeChapter, id, loading, chapters.length]);
+
   // ── Chapter editor ─────────────────────────────────────────────────────
   const [editingChapter, setEditingChapter] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [editedChapters, setEditedChapters] = useState<Set<number>>(new Set());
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Author notes ────────────────────────────────────────────────────────
+  const [showNotes, setShowNotes] = useState(false);
+  const [noteContent, setNoteContent] = useState("");
+  const [notesSaveStatus, setNotesSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync note content when chapter changes
+  useEffect(() => {
+    const ch = chapters.find((c) => c.number === activeChapter);
+    setNoteContent(ch?.notes ?? "");
+  }, [activeChapter, chapters]);
 
   // Warn before navigating away with unsaved changes
   useEffect(() => {
@@ -158,6 +192,29 @@ export default function ReaderPage() {
   function handleEditChange(value: string) {
     setEditContent(value);
     if (editingChapter !== null) autoSave(editingChapter, value);
+  }
+
+  function handleNotesChange(value: string, chapterNumber: number) {
+    setNoteContent(value);
+    if (notesTimerRef.current) clearTimeout(notesTimerRef.current);
+    setNotesSaveStatus("saving");
+    notesTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/novels/${id}/chapters/${chapterNumber}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notes: value }),
+        });
+        if (!res.ok) throw new Error();
+        setChapters((prev) =>
+          prev.map((c) => c.number === chapterNumber ? { ...c, notes: value } : c)
+        );
+        setNotesSaveStatus("saved");
+        setTimeout(() => setNotesSaveStatus("idle"), 2000);
+      } catch {
+        setNotesSaveStatus("idle");
+      }
+    }, 500);
   }
 
   // ── Regen ───────────────────────────────────────────────────────────────
@@ -432,6 +489,9 @@ export default function ReaderPage() {
                   >
                     {currentChapter.word_count.toLocaleString()} từ
                   </span>
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>
+                    ~{Math.ceil(currentChapter.word_count / 200)} phút đọc
+                  </span>
                   <span
                     className="text-xs"
                     title={!currentChapter.audit_passed ? currentChapter.audit_notes : undefined}
@@ -460,6 +520,19 @@ export default function ReaderPage() {
                   <div />
 
                   <div className="flex items-center gap-2">
+                    {/* Notes toggle */}
+                    <button
+                      onClick={() => setShowNotes((v) => !v)}
+                      className="text-xs px-3 py-1 rounded-sm transition-all"
+                      style={{
+                        background: showNotes ? "var(--amber-glow)" : "var(--surface)",
+                        border: `1px solid ${showNotes ? "var(--amber-dim)" : "var(--border)"}`,
+                        color: showNotes ? "var(--amber)" : "var(--muted)",
+                      }}
+                    >
+                      ✍ Ghi chú
+                    </button>
+
                     {/* Edit toggle */}
                     {editingChapter === currentChapter.number ? (
                       <button
@@ -511,6 +584,45 @@ export default function ReaderPage() {
                 )}
                 <div className="mt-4 h-px" style={{ background: "var(--border)" }} />
               </div>
+
+              {/* Author notes panel */}
+              {showNotes && (
+                <div
+                  className="mb-8 rounded-sm p-4"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs uppercase tracking-widest font-semibold" style={{ color: "var(--muted)" }}>
+                      Ghi chú cá nhân (không xuất ra)
+                    </span>
+                    {notesSaveStatus === "saving" && (
+                      <span className="text-xs" style={{ color: "var(--amber)" }}>Đang lưu…</span>
+                    )}
+                    {notesSaveStatus === "saved" && (
+                      <span className="text-xs" style={{ color: "#4ADE80" }}>✓ Đã lưu</span>
+                    )}
+                  </div>
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => handleNotesChange(e.target.value, currentChapter.number)}
+                    placeholder="Ghi chú về chương này: muốn chỉnh sửa gì, ý tưởng cho lần sau…"
+                    rows={4}
+                    className="w-full rounded-sm resize-none px-3 py-2 text-sm focus:outline-none"
+                    style={{
+                      background: "var(--paper)",
+                      border: "1px solid var(--border)",
+                      color: "var(--body)",
+                      lineHeight: "1.6",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "var(--amber)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "var(--border)";
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Editor or reader */}
               {editingChapter === currentChapter.number ? (

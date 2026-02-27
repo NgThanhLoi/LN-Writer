@@ -73,12 +73,32 @@ ROMANCE_GENRE_STYLE = """**Thể loại: Romance (Tình cảm đương đại)**
 - Nội tâm nhân vật: Rất nhiều, đặc biệt xung quanh cảm xúc và hiểu lầm
 - Mô tả: Tập trung vào chi tiết cảm xúc và khoảnh khắc nhỏ có ý nghĩa lớn"""
 
+KINH_DI_GENRE_STYLE = """**Thể loại: Kinh dị**
+- Giọng văn: Chậm rãi, u ám, đầy cảm giác bất an — nỗi rùng rợn đến từ cái thường ngày
+- Từ vựng: Gợi cảm giác (âm thanh lạ, mùi tanh, bóng tối, cái lạnh bất thường)
+- Câu trung bình: 10-14 từ; câu cụt ngắn khi sợ hãi cao trào
+- Hội thoại: ~30% nội dung, đối thoại thường chứa thông tin gây rùng rợn
+- Nội tâm nhân vật: Rất nhiều — nỗi sợ, nghi ngờ, phủ nhận rồi chấp nhận dần
+- Mô tả: Kỹ về không gian (nhà bỏ hoang, đêm khuya, sương mù), chi tiết báo hiệu nguy hiểm
+- Yếu tố Việt: Truyền thuyết dân gian (ma, quỷ, hồn oan), địa danh quen thuộc gây cảm giác gần gũi đáng sợ"""
+
+HANH_DONG_GENRE_STYLE = """**Thể loại: Hành động (Shonen)**
+- Giọng văn: Nhanh, mạnh, bùng nổ — năng lượng cao, cảm hứng chiến đấu và ý chí vượt giới hạn
+- Từ vựng: Động từ mạnh, thuật ngữ chiến đấu/sức mạnh, tiếng la hét/hô hào
+- Câu trung bình: 8-12 từ; câu siêu ngắn khi combat ("Hắn tấn công. Aria né. Phản đòn.")
+- Hội thoại: ~45% nội dung, lời thoại là tuyên ngôn, thách đấu, hoặc hô hào bạn đồng hành
+- Nội tâm nhân vật: Ý chí chiến đấu, quyết tâm bảo vệ người thân, vượt qua giới hạn bản thân
+- Mô tả: Chi tiết kỹ thuật chiến đấu, tốc độ, sức mạnh, thương tích — cinematic
+- Cấu trúc: Power scaling rõ ràng, rival arcs, friendship/nakama themes"""
+
 
 GENRE_STYLES = {
     "isekai":     ISEKAI_GENRE_STYLE,
     "tu_tien":    TUTION_GENRE_STYLE,
     "xuyen_khong": XUYEN_KHONG_GENRE_STYLE,
     "romance":    ROMANCE_GENRE_STYLE,
+    "kinh_di":    KINH_DI_GENRE_STYLE,
+    "hanh_dong":  HANH_DONG_GENRE_STYLE,
 }
 
 
@@ -108,12 +128,26 @@ _ROMANCE_PLOT_HINTS = """**Lưu ý thể loại Romance:**
 - Tropes hay dùng: enemies to lovers, second chance, forced proximity, slow burn
 - Chapter 1 thường: gặp gỡ định mệnh có kèm theo conflict hoặc ấn tượng sai lầm"""
 
+_KINH_DI_PLOT_HINTS = """**Lưu ý thể loại Kinh dị:**
+- Xây dựng bầu không khí u ám dần dần — không reveal nỗi sợ ngay từ đầu
+- Cần có: điều bất thường đầu tiên (thường bị bỏ qua), nhân vật chứng kiến điều không thể giải thích
+- Tropes hay dùng: nhà bỏ hoang, người mất tích, giấc mơ báo hiệu, gương mặt lạ trong ảnh cũ
+- Chapter 1 thường: cuộc sống bình thường + sự kiện nhỏ kỳ lạ đầu tiên gợi điều sắp đến"""
+
+_HANH_DONG_PLOT_HINTS = """**Lưu ý thể loại Hành động (Shonen):**
+- Thiết lập mục tiêu rõ ràng của nhân vật chính ngay từ đầu
+- Cần có: màn ra mắt sức mạnh, đối thủ đầu tiên để đo lường mức độ, hint về kẻ thù lớn hơn phía trước
+- Tropes hay dùng: underdog rise, training arc, rival với mục tiêu tương phản, hi sinh bạn đồng hành
+- Chapter 1 thường: bộc lộ ý chí/tiềm năng của nhân vật chính + conflict đầu tiên cần vượt qua"""
+
 
 GENRE_PLOT_HINTS = {
     "isekai":      _ISEKAI_PLOT_HINTS,
     "tu_tien":     _TUTION_PLOT_HINTS,
     "xuyen_khong": _XUYEN_KHONG_PLOT_HINTS,
     "romance":     _ROMANCE_PLOT_HINTS,
+    "kinh_di":     _KINH_DI_PLOT_HINTS,
+    "hanh_dong":   _HANH_DONG_PLOT_HINTS,
 }
 
 PLOT_CONTINUATION_PROMPT = """Bạn là nhà văn light novel Việt Nam chuyên nghiệp.
@@ -161,4 +195,6 @@ GENRE_DISPLAY_NAMES = {
     "tu_tien":     "Tu tiên",
     "xuyen_khong": "Xuyên không",
     "romance":     "Romance",
+    "kinh_di":     "Kinh dị",
+    "hanh_dong":   "Hành động",
 }

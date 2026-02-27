@@ -57,7 +57,8 @@ class ChapterResponse(BaseModel):
 
 
 class UpdateChapterRequest(BaseModel):
-    content: str
+    content: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class RollbackRequest(BaseModel):

@@ -59,6 +59,13 @@ def init_db():
             if "duplicate column name" not in str(e):
                 raise
 
+        # Migration: add notes column if missing
+        try:
+            conn.execute("ALTER TABLE chapters ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
+
         # Backfill word_count for existing chapters (approximation via SQL — one-time)
         conn.execute("""
             UPDATE chapters
@@ -183,6 +190,14 @@ def update_chapter_content(novel_id: str, number: int, content: str) -> None:
         conn.execute(
             "UPDATE chapters SET content=?, word_count=? WHERE novel_id=? AND number=?",
             (content, wc, novel_id, number),
+        )
+
+
+def update_chapter_notes(novel_id: str, number: int, notes: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE chapters SET notes=? WHERE novel_id=? AND number=?",
+            (notes, novel_id, number),
         )
 
 
