@@ -195,6 +195,7 @@ class AsyncNovelService:
                     "title": chapter.title,
                     "word_count": len(chapter.content.split()),
                     "audit_passed": chapter.audit_passed,
+                    "audit_notes": chapter.audit_notes,
                 })
 
                 # Checkpoint 2: chapter 1 approval
@@ -386,6 +387,7 @@ class AsyncNovelService:
                 self._emit(novel_id, "chapter_done", {
                     "number": chapter.number, "title": chapter.title,
                     "word_count": len(chapter.content.split()), "audit_passed": chapter.audit_passed,
+                    "audit_notes": chapter.audit_notes,
                 })
                 prev_with_content.append(chapter)
                 db.update_novel_status(novel_id, "drafting", chapter.number)
@@ -481,6 +483,7 @@ class AsyncNovelService:
                 "title": chapter_obj.title,
                 "word_count": len(chapter_obj.content.split()),
                 "audit_passed": chapter_obj.audit_passed,
+                "audit_notes": chapter_obj.audit_notes,
             })
 
         except Exception as e:

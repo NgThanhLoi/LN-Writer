@@ -96,7 +96,19 @@ export default function ReaderPage() {
   const [editingChapter, setEditingChapter] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [editedChapters, setEditedChapters] = useState<Set<number>>(new Set());
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Warn before navigating away with unsaved changes
+  useEffect(() => {
+    if (saveStatus !== "saving") return;
+    function handler(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [saveStatus]);
 
   const autoSave = useCallback(
     (chapterNumber: number, content: string) => {
@@ -118,6 +130,7 @@ export default function ReaderPage() {
             )
           );
           setSaveStatus("saved");
+          setEditedChapters((prev) => new Set(prev).add(chapterNumber));
           setTimeout(() => setSaveStatus("idle"), 2000);
         } catch {
           setSaveStatus("idle");
@@ -319,9 +332,14 @@ export default function ReaderPage() {
                     >
                       {ch.word_count.toLocaleString()} từ
                     </span>
-                    {!ch.audit_passed && (
-                      <span className="text-xs" style={{ color: "#F87171" }}>⚠</span>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {editedChapters.has(ch.number) && (
+                        <span className="text-xs" title="Đã chỉnh sửa" style={{ color: "var(--amber)" }}>✎</span>
+                      )}
+                      {!ch.audit_passed && (
+                        <span className="text-xs" title={ch.audit_notes || undefined} style={{ color: "#F87171" }}>⚠</span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -349,7 +367,7 @@ export default function ReaderPage() {
                 </h2>
 
                 {/* Word count + audit badge row */}
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center flex-wrap gap-3 mb-4">
                   <span
                     className="text-xs font-semibold px-2.5 py-1 rounded-sm"
                     style={{
@@ -362,10 +380,19 @@ export default function ReaderPage() {
                   </span>
                   <span
                     className="text-xs"
-                    style={{ color: currentChapter.audit_passed ? "#4ADE80" : "#F87171" }}
+                    title={!currentChapter.audit_passed ? currentChapter.audit_notes : undefined}
+                    style={{ color: currentChapter.audit_passed ? "#4ADE80" : "#F87171", cursor: !currentChapter.audit_passed ? "help" : "default" }}
                   >
                     {currentChapter.audit_passed ? "✓ Audit passed" : "⚠ Audit failed"}
                   </span>
+                  {!currentChapter.audit_passed && currentChapter.audit_notes && (
+                    <span className="text-xs italic" style={{ color: "var(--muted)" }}>
+                      {currentChapter.audit_notes}
+                    </span>
+                  )}
+                  {editedChapters.has(currentChapter.number) && (
+                    <span className="text-xs" style={{ color: "var(--amber)" }}>✎ Đã chỉnh sửa</span>
+                  )}
                   {saveStatus === "saving" && (
                     <span className="text-xs" style={{ color: "var(--amber)" }}>Đang lưu…</span>
                   )}

@@ -11,6 +11,7 @@ type ChapterMeta = {
   title: string;
   word_count: number;
   audit_passed: boolean;
+  audit_notes: string;
 };
 type BlueprintSummary = {
   title: string;
@@ -27,13 +28,13 @@ type WritingProgress = { chapter_number: number; chapter_title: string; words_so
 type WSEvent =
   | { type: "status"; status: string; current_chapter?: number }
   | { type: "log"; msg: string }
-  | { type: "chapter_done"; number: number; title: string; word_count: number; audit_passed: boolean }
+  | { type: "chapter_done"; number: number; title: string; word_count: number; audit_passed: boolean; audit_notes: string }
   | { type: "checkpoint_plot"; blueprint: BlueprintSummary }
   | { type: "checkpoint_chapter1"; preview: string; word_count: number; audit_passed: boolean; audit_notes: string }
   | { type: "done"; status: string; output_path?: string; total_words?: number }
   | { type: "error"; msg: string }
   | { type: "regen_start"; chapter_number: number }
-  | { type: "regen_done"; chapter_number: number; title: string; word_count: number; audit_passed: boolean }
+  | { type: "regen_done"; chapter_number: number; title: string; word_count: number; audit_passed: boolean; audit_notes: string }
   | { type: "chapter_progress"; chapter_number: number; chapter_title: string; words_so_far: number; target: number }
   | { type: "ping" };
 
@@ -90,7 +91,7 @@ export default function WritePage() {
           setChapters((prev) => {
             const exists = prev.find((c) => c.number === event.number);
             if (exists) return prev;
-            return [...prev, { number: event.number, title: event.title, word_count: event.word_count, audit_passed: event.audit_passed }];
+            return [...prev, { number: event.number, title: event.title, word_count: event.word_count, audit_passed: event.audit_passed, audit_notes: event.audit_notes }];
           });
         } else if (event.type === "checkpoint_plot") {
           setBlueprint(event.blueprint);
@@ -111,7 +112,7 @@ export default function WritePage() {
           setWritingProgress(null);
           setChapters((prev) => prev.map((c) =>
             c.number === event.chapter_number
-              ? { ...c, word_count: event.word_count, audit_passed: event.audit_passed }
+              ? { ...c, word_count: event.word_count, audit_passed: event.audit_passed, audit_notes: event.audit_notes }
               : c
           ));
           setLogs((prev) => [...prev, {
@@ -275,6 +276,7 @@ export default function WritePage() {
                 <button
                   key={ch.number}
                   onClick={() => router.push(`/novel/${id}?ch=${ch.number}`)}
+                  title={!ch.audit_passed && ch.audit_notes ? ch.audit_notes : undefined}
                   className="flex-shrink-0 text-sm px-3 py-1 rounded-sm transition-all"
                   style={{
                     background: "var(--surface)",
@@ -282,7 +284,7 @@ export default function WritePage() {
                     color: ch.audit_passed ? "var(--amber)" : "var(--subtle)",
                   }}
                 >
-                  Ch.{ch.number} · {ch.word_count.toLocaleString()} từ
+                  Ch.{ch.number} · {ch.word_count.toLocaleString()} từ{!ch.audit_passed ? " ⚠" : ""}
                 </button>
               ))}
             </div>
